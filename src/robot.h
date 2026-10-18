@@ -8,18 +8,26 @@
 // The main struct shared by the robot side and the control side threads -
 // contains the state of what we want the robot to do
 struct spin_control_parameters_t {
-  int throttle_perk;       // stores throttle, out of 0-1000
-  int max_throttle_offset; // In a rotation, the furthest from the base throttle
-                           // setting that each motor should be spun
-  long rotation_interval_us; // time for 1 rotation of robot
-  long led_start;            // offset for beginning of LED beacon
-  long led_stop;             // offset for end of LED beacon
-  long motor_start_phase_1;  // time offset for when motor 1 begins translating
-                             // forwards
-  long motor_start_phase_2;  // time offset for when motor 2 begins translating
-                             // forwards
-  int battery_percent; // battery power remaining- where on the green->red slope
-                       // we should be
+  // stores throttle, out of [0,1000]
+  int32_t throttle_perk;
+  // In a rotation, the furthest from the base throttle
+  // setting that each motor should be spun
+  int32_t max_throttle_magnitude;
+  // time for 1 rotation of robot
+  long rotation_interval_us;
+  // offset for beginning of LED beacon
+  long led_start;
+  // offset for end of LED beacon
+  long led_stop;
+  // time offset for when motor 1 begins translating
+  // forwards
+  long motor_start_phase_1;
+  // time offset for when motor 2 begins translating
+  // forwards
+  long motor_start_phase_2;
+  // battery power remaining- where on the green->red slope
+  // we should be
+  int battery_percent;
 };
 
 struct tank_control_parameters_t {

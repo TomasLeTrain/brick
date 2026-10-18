@@ -15,6 +15,7 @@ typedef struct ctrl_state {
     bool reverse_spin; // toggle, stays true between presses of the command button
     int target_rpm; // this may stay high even if spin_requested is false!
 
+	// ????
     float translate_trim;
 
     // and parameter tweaking

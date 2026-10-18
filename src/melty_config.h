@@ -7,15 +7,19 @@
 #define ACCELEROMETER_HARDWARE_RADIUS_CM 5.13f
 // Ant-tato distance: 3.415f
 // Beetle-tato distance: 5.13f
+
+// ??
 #define LED_OFFSET_PERCENT 47
 
-#define LEFT_RIGHT_HEADING_CONTROL_DIVISOR                                     \
-  2.0f // How quick steering while melting is (larger values = slower)
+// How quick steering while melting is (larger values = slower)
+#define LEFT_RIGHT_HEADING_CONTROL_DIVISOR 2.0f
+
 #define MIN_TRACKING_RPM 400
+
+// don't track heading if we are this slow (also puts upper limit on time spent
+// in melty loop for safety)
 #define MAX_TRACKING_ROTATION_INTERVAL_US                                      \
-  (1.0f / MIN_TRACKING_RPM) * 60 * 1000 *                                      \
-      1000 // don't track heading if we are this slow (also puts upper limit on
-           // time spent in melty loop for safety)
+  (1.0f / MIN_TRACKING_RPM) * 60 * 1000 * 1000
 
 #define MAX_TRACKING_RPM 3000;
 
@@ -29,17 +33,14 @@
 #define TANK_TURNING_POWER_SCALE                                               \
   0.005f // because we're sitting on a pair of ungeared brushless motors
 
-// ------------ PID tuning ---------------------------
-// Tuning PIDs is an art. See:
-// https://pidexplained.com/how-to-tune-a-pid-controller/
-
-#define PID_KP                                                                 \
-  1.0 // Proportional Gain - higher values give more sensitivity, lower values
-      // give more stability
-#define PID_KI                                                                 \
-  0.4 // Integral - damping on the rebound curves. Lower values = slower to
-      // respond, but less bounces
-#define PID_KD 0.0 // Derivative - useful to prevent overshoot of target value.
+// Proportional Gain - higher values give more sensitivity, lower values
+// give more stability
+#define PID_KP 1.0
+// Integral - damping on the rebound curves. Lower values = slower to
+// respond, but less bounces
+#define PID_KI 0.4
+// Derivative - useful to prevent overshoot of target value.
+#define PID_KD 0.0
 
 // ------------- controller button mappings ----------
 #define XBOX_DPAD_UP 0x01

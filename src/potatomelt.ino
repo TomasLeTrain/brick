@@ -77,22 +77,23 @@ void calculate_melty_params(spin_control_parameters_t* params, ctrl_state* c) {
 
     // because by default we're spinning clockwise, right turns = longer rotations = less RPM
     float rpm_adjustment_factor = c->turn_lr / 1024.0 / LEFT_RIGHT_HEADING_CONTROL_DIVISOR;
-
     rpm -= rpm*rpm_adjustment_factor;
 
-    long rotation_us = (1.0f/rpm) * 60 * 1000 * 1000;
+    // amount of time for one rotation, in us
+    float rotation_us = (60000.0f/rpm) * 1000;
 
     params->rotation_interval_us = rotation_us;
 
-    // and the LED settings
-    float led_on_portion = rpm / MAX_TRACKING_RPM;
-    if (led_on_portion < 0.10f) led_on_portion = 0.10f;
-    if (led_on_portion > 0.90f) led_on_portion = 0.90f;
+    // in range of [0,-1], determines how wide the led range gets
+    float led_on_percentage = rpm / MAX_TRACKING_RPM;
+    if (led_on_percentage < 0.10f) led_on_percentage = 0.10f;
+    if (led_on_percentage > 0.90f) led_on_percentage = 0.90f;
 
-    double led_on_fraction = led_on_portion;
+    int32_t led_on_us = led_on_percentage * rotation_us;
 
-    double led_on_us = (long) (led_on_portion * rotation_us);
-    double led_offset_us = (long) (LED_OFFSET_PERCENT * rotation_us / 100);
+    // start value for when in rotation the led should be centered around
+    // in theory should be zero?
+    int32_t led_offset_us = (LED_OFFSET_PERCENT * rotation_us) / 100;
 
     // starts LED on time at point in rotation so it's "centered" on led offset
     params->led_start = led_offset_us - (led_on_us / 2);
@@ -101,8 +102,7 @@ void calculate_melty_params(spin_control_parameters_t* params, ctrl_state* c) {
     }
     
     params->led_stop = params->led_start + led_on_us;
-    if (params->led_stop > rotation_us)
-    {
+    if (params->led_stop > rotation_us) {
         params->led_stop -= rotation_us;
     }
 
@@ -113,9 +113,17 @@ void calculate_melty_params(spin_control_parameters_t* params, ctrl_state* c) {
     // The throttle PID control
     pid_target_rpm = c->target_rpm;
     throttle_pid.Compute();
+
+    // throttle for spinning at base rpm
     params->throttle_perk = (int) pid_throttle_output;
 
-    params->max_throttle_offset = (int) c->translate_forback * params->throttle_perk * c->translate_trim / 1024;
+    // max deviation from throttle = desired throttle * pid for target spin rpm * trim factor
+    // TODO: what are the units / scales here?
+    // translate is [-512,512], what about throttle_perk?
+    //
+    // is multiplied by the projection of the thrust vector, so its the speed of movement
+    // TODO: use magnitude of thrust vector from controller
+    params->max_throttle_magnitude = (int) c->translate_forback * params->throttle_perk * c->translate_trim / 1024;
 
     params->battery_percent = robot.get_battery();
 }

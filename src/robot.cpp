@@ -1,5 +1,6 @@
 #include "robot.h"
 #include "melty_config.h"
+#include <cmath>
 
 // converts desired throttle from [-1000, 1000] into value for dshot
 int perk2dshot(int throttle) {
@@ -46,6 +47,15 @@ void Robot::update_loop(robot_status state,
 //   - turning left/right simply shifts the time at which the rotation starts
 //
 // - the robot moves in some vector relative to the forwards heading
+//   - vector gets projected and motor throttle is determined from that
+//
+// assume |rotation| -> normalized rotation, 0 is start and 1 is end of rotation
+// then the left and right vels become
+//
+// 0     -> full speed to go forwards            -> cos
+// 0.25  -> full speed to go left (if going ccw) -> sin
+// 0.5   -> full speed to go backwards
+// 0.75  -> full speed to go right
 
 void Robot::spin(spin_control_parameters_t *spin_params) {
   long time_spent_this_rotation_us = micros() - rotation_started_at_us;
@@ -58,30 +68,34 @@ void Robot::spin(spin_control_parameters_t *spin_params) {
     rotation_started_at_us += spin_params->rotation_interval_us;
   }
 
-  double throttle_offset = 0;
+  // want to project thurst vector into rotation vector
+  // this is:
+  // thurst_multiplier = (v_x, v_y) dot (cos theta, sin theta)
+  // thurst_multiplier = v_x * cos(theta) + v_y + sin(theta)
+  // here:
+  // theta = (time_spent_this_rotation / spin_params->rotation_interval_us)*360;
+  // can use polynomial approximations
+  // TODO: could try and use polynomial approximations, but not that limited on
+  // compute?
 
-  // translation math time - first, how far into this phase of rotation are we?
-  long micros_into_phase =
-      time_spent_this_rotation_us % (spin_params->rotation_interval_us / 2);
-  float phase_progress =
-      2.0 * micros_into_phase / (spin_params->rotation_interval_us);
+  // TODO: get from params
+  // NOTE: must be normalized since gets multiplied by magnitude later
+  float thrust_x = 0;
+  float thrust_y = 0;
 
-  // What does that mean the sine (approximation) of that distance into the
-  // phase is? Using a parabolic approximation of half a sine wave, that goes
-  // from Y=0 to 1 and back in the range X=0..1
-  float phase_offset_fraction = -4 * phase_progress * (phase_progress - 1);
+  float theta = (time_spent_this_rotation_us * 360.0f) /
+                spin_params->rotation_interval_us;
+  float cosa = cosf(theta);
+  float sina = sinf(theta);
 
-  throttle_offset =
-      (double)(phase_offset_fraction * spin_params->max_throttle_offset);
+  float throttle_offset =
+      (thrust_x * cosa + thrust_y * sina) * spin_params->max_throttle_magnitude;
 
-  int left_throttle = spin_params->throttle_perk - throttle_offset;
-  int right_throttle = spin_params->throttle_perk + throttle_offset;
+  int left_offset = -throttle_offset;
+  int right_offset = +throttle_offset;
 
-  if (time_spent_this_rotation_us >= spin_params->motor_start_phase_1 &&
-      time_spent_this_rotation_us <= spin_params->motor_start_phase_2) {
-    left_throttle *= -1;
-    right_throttle *= -1;
-  }
+  int left_throttle = spin_params->throttle_perk + left_offset;
+  int right_throttle = spin_params->throttle_perk + right_offset;
 
   move_with_throttles(left_throttle, right_throttle);
 
