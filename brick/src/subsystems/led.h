@@ -1,5 +1,3 @@
-#include "../melty_config.h"
-
 class LED {
     public:
         LED();
@@ -11,7 +9,7 @@ class LED {
 
         void leds_on_gradient(int color);
         void leds_off();
-    private:
         void leds_on_rgb(int red, int green, int blue);
+    private:
         void write_pixel();
 };
