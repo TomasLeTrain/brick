@@ -1,5 +1,7 @@
 // This file has all the hard-coded settings for Potatomelt
 
+#define NUM_LEDS 8
+
 #define NEOPIXEL_PIN GPIO_NUM_3
 // #define MOTOR_1_PIN GPIO_NUM_6
 // #define MOTOR_2_PIN GPIO_NUM_7
