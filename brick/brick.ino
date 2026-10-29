@@ -1,12 +1,13 @@
-// #include "src/subsystems/led.h"
+#include "src/subsystems/led.h"
 #include "src/lib/AlfredoDShot.h"
+#include "robot.h"
 
 AlfredoDShot esc;
 
-// LED leds;
+Robot robot;
+LED leds;
 
 TaskHandle_t motor_task, general_task;
-
 void motor_update(void* param);
 void general_update(void* param);
 
@@ -15,52 +16,13 @@ float throttle = 0.1;
 int command = 0;
 
 void setup() {
-  // AlfredoDShot::releaseBootloader(4);   // must be first, see Troubleshooting
-  esc.begin(GPIO_NUM_4, DSHOT600, /*bidirectional=*/false, /*motorPoles=*/14);
+  esc.begin(GPIO_NUM_4, DSHOT600, false, 14);
 
   Serial.begin();
 
-  // wait for armed
-  // while(!esc.isArmed()){
-  //   delay(10);
-  // }
-
-
-  // send non-zero for a lil bit
-  // int curr = millis();
-  // while(millis() - curr < 1000){
-  //   esc.send(50);
-  //   delay(10);
-  // }
-
-  // // then send zero again
-  // curr = millis();
-  // while(millis() - curr < 1000){
-  //   esc.send(0);
-  //   delay(10);
-  // }
-
   // now do everything else
-
   pinMode(LED_BUILTIN,OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH);
-
-  // delay(2000);
-//  wait for esc
-//   while(!esc.isArmed()){
-//     Serial.println("waiting");
-//     delay(10);
-// }
-  
-  // delay even more
-  // delay(100);
-  // int count = 0;
-  // while(count < 3000){
-  //   esc.send(0);
-  //   delay(1);
-  //   count++;
-  // }
-
 
   // add tasks
   xTaskCreatePinnedToCore(
@@ -113,6 +75,7 @@ void motor_update(void* param){
     if(esc.isArmed()){
       digitalWrite(LED_BUILTIN, LOW);
     }
+    robot.motor_update();
     vTaskDelay(1); 
   }
 }
@@ -120,13 +83,12 @@ void motor_update(void* param){
 void general_update(void* param){
   int thing = 0;
   while(true){
+    robot.general_update();
   //  Serial.printf("general update %d\n", micros());
 
   // leds.leds_on_gradient(thing);
-  // leds.leds_on_rgb(0,0,15);
+  leds.leds_on_rgb(0,0,15);
   // thing+=5;
-
-  //  delay(100);
 
   vTaskDelay(10);
 

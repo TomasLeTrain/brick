@@ -1,4 +1,6 @@
-#include <driver/rmt_rx.h>
+#pragma once
+
+#include <driver/gpio.h>
 #include <driver/rmt_tx.h>
 
 class LED {
@@ -17,5 +19,8 @@ public:
 private:
   void write_pixel();
 
+  bool init_rmt(gpio_num_t gpio);
+
   rmt_channel_handle_t _rmt_tx_channel = nullptr; // RMT transmit channel handle
+  rmt_encoder_handle_t _enc = nullptr;
 };
