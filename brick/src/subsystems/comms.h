@@ -1,14 +1,11 @@
+#pragma once
+
+#include "../common/packets.h"
 #include "config.h"
 #include "src/lib/NowPair.h"
 
-struct TelemetryPacket {
-  uint16_t a_x;
-  uint16_t a_y;
-  uint16_t a_z;
-
-  // TODO: bit endianess?
-  size_t serialize(uint8_t *buffer);
-};
+#include <cstddef>
+#include <cstdint>
 
 class Comms {
 public:
@@ -20,6 +17,9 @@ public:
   void update();
   bool connected();
 
+  ThrottlePacket *get_throttle_packet() { return &current_throttle; }
+  NowPair* get_link() { return peer_link; }
+
 private:
   static void dataCb(const uint8_t *data, size_t length, void *arg);
   void on_data(const uint8_t *data, size_t length);
@@ -27,4 +27,6 @@ private:
 
   bool peerConnected = false;
   NowPair *peer_link = nullptr;
+
+  ThrottlePacket current_throttle;
 };

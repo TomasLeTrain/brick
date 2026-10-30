@@ -13,8 +13,9 @@ class NowPair : public ESP_NOW_Peer {
 public:
   enum class Role : uint8_t { Master, Slave };
   static constexpr size_t MAX_PAYLOAD = 228;
-  using ConnectionCallback = void (*)(bool connected);
-  using DataCallback = void (*)(const uint8_t *data, size_t length);
+  // using ConnectionCallback = void (*)(bool connected);
+  using ConnectionCallback = void (*)(bool connected, void *arg);
+  using DataCallback = void (*)(const uint8_t *data, size_t length, void *arg);
 
   explicit NowPair(Role role, uint8_t channel = 6,
                    uint32_t networkId = 0x12345678, uint32_t heartbeatMs = 500,
@@ -31,8 +32,14 @@ public:
   bool connected() const { return _connected; }
   // nullptr until a remote has been discovered. MAC stays fixed until reboot.
   const uint8_t *remoteAddress() const { return _bound ? addr() : nullptr; }
-  void onConnectionChange(ConnectionCallback cb) { _connectionCallback = cb; }
-  void onData(DataCallback cb) { _dataCallback = cb; }
+  void onConnectionChange(ConnectionCallback cb, void *arg) {
+    _connectionCallback = cb;
+    _connectionArg = arg;
+  }
+  void onData(DataCallback cb, void *arg) {
+    _dataCallback = cb;
+    _dataArg = arg;
+  }
 
   // true means queued locally, NOT delivered/acknowledged by the application.
   bool sendData(const void *data, size_t length);
@@ -105,5 +112,7 @@ private:
   std::atomic<bool> _txBusy{false}, _lastTxSuccess{false};
   std::atomic<uint32_t> _droppedRx{0};
   ConnectionCallback _connectionCallback = nullptr;
+  void *_connectionArg = nullptr;
   DataCallback _dataCallback = nullptr;
+  void *_dataArg = nullptr;
 };

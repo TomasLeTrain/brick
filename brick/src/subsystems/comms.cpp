@@ -1,16 +1,5 @@
 #include "comms.h"
 
-// TODO: bit endianess?
-size_t TelemetryPacket::serialize(uint8_t *buffer) {
-  buffer[0] = a_x & 0xff;
-  buffer[1] = (a_x >> 8) & 0xff;
-  buffer[2] = a_y & 0xff;
-  buffer[3] = (a_y >> 8) & 0xff;
-  buffer[4] = a_z & 0xff;
-  buffer[5] = (a_z >> 8) & 0xff;
-  return 6;
-}
-
 Comms::Comms() {}
 Comms::~Comms() { end(); }
 
@@ -28,7 +17,11 @@ void Comms::dataCb(const uint8_t *data, size_t length, void *arg) {
 }
 
 void Comms::on_data(const uint8_t *data, size_t length) {
-  // TODO: deserialize message and process appropriately
+  // TODO: should definetely do something with res
+  // maybe increase packet loss, or have callback for on bad packet?
+  bool res = current_throttle.deserialize(data, length);
+
+  Serial.printf("data cb %d\n", micros());
 }
 
 bool Comms::send(TelemetryPacket *packet) {

@@ -1,3 +1,5 @@
+#pragma once
+
 #include "../lib/SparkFun_LIS331_ESP32.h"
 
 class Accelerometer {

@@ -84,9 +84,9 @@ void LED::leds_on_no_controller() {
   }
 }
 
-void LED::leds_on_gradient(int color) {
-  int green = (color > 50) ? 255 : 255 * color / 50;
-  int red = (color < 50) ? 255 : 255 * (100 - color) / 50;
+void LED::leds_on_gradient(uint8_t color) {
+  uint8_t green = (color > 50) ? 255 : (255 * int(color)) / 50;
+  uint8_t red = (color < 50) ? 255 : (255 * (100 - int(color))) / 50;
   leds_on_rgb(red, green, 0);
 }
 
@@ -96,12 +96,22 @@ void LED::leds_off() {
   write_pixel();
 }
 
-void LED::leds_on_rgb(int red, int green, int blue) {
+void LED::leds_on_rgb(uint8_t red, uint8_t green, uint8_t blue) {
+  // scales all values by brightness:
+  // new_val = (val / 255) * brightness
+  // new_val = (val * brightness) / 255
+
+  // NOTE: shifting (diving by 256) instead of diving by /255 for almost same
+  // result
+  int red_val = (int(red) * brightness) >> 8;
+  int green_val = (int(green) * brightness) >> 8;
+  int blue_val = (int(blue) * brightness) >> 8;
+
   // neopixels usually use GRB addressing rather than RGB
   for (size_t i = 0; i < sizeof pixel_color; i += 3) {
-    pixel_color[i + 0] = green;
-    pixel_color[i + 1] = red;
-    pixel_color[i + 2] = blue;
+    pixel_color[i + 0] = green_val;
+    pixel_color[i + 1] = red_val;
+    pixel_color[i + 2] = blue_val;
   }
   write_pixel();
 }
@@ -128,5 +138,4 @@ void LED::write_pixel() {
 
   rmt_transmit_config_t txc = {};
   rmt_transmit(_rmt_tx_channel, _enc, led_rmt_data, sizeof(led_rmt_data), &txc);
-  // rmt_write_items(NEOPIXEL_RMT, led_rmt_data, sizeof led_data, false);
 }

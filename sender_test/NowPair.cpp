@@ -116,7 +116,7 @@ void NowPair::setConnected(bool value) {
     return;
   _connected = value;
   if (_connectionCallback)
-    _connectionCallback(value);
+    _connectionCallback(value, _connectionArg);
 }
 
 void NowPair::adoptSession(uint32_t session) {
@@ -186,7 +186,7 @@ void NowPair::handle(const RxEvent &event) {
     break;
   case Kind::Data:
     if (_connected && _dataCallback)
-      _dataCallback(f.payload, f.length);
+      _dataCallback(f.payload, f.length, _dataArg);
     break;
   default:
     break;

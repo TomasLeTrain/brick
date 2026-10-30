@@ -6,6 +6,7 @@ Robot::Robot() {}
 
 void Robot::begin() {
   // TODO: check for any begin errors and report with leds
+  leds.set_brightness(10);
 
   left_motor.begin(LEFT_MOTOR_PIN, DSHOT600, false, 14);
   right_motor.begin(RIGHT_MOTOR_PIN, DSHOT600, false, 14);
@@ -30,6 +31,8 @@ void Robot::begin() {
 
   Serial.println("did accel");
 
+  // NOTE: if comms used within 800 msec if startup then a temporary disconnect can occur
+  // shouldn't cause an issue so no delay is added here
   // init comms
   comms.begin();
 
@@ -47,6 +50,7 @@ void Robot::arming_sequence() {
 }
 
 void Robot::general_update() {
+  // Serial.println("doing update");
   comms.update();
 
   if (comms.connected()) {
@@ -55,15 +59,31 @@ void Robot::general_update() {
     leds.leds_on_no_controller();
   }
 
-  leds.leds_on_rgb(0, 0, 15);
-
+  // Serial.println("accel reading");
   accel.update_reading();
 
   float x = accel.get_x_accel(false);
   float y = accel.get_y_accel(false);
   float z = accel.get_z_accel(false);
+  // Serial.println("getting packet");
 
-  Serial.printf("x:%.3f,y:%.3f,z:%.3f\n", x, y, z);
+  // Serial.printf("x:%.3f,y:%.3f,z:%.3f\n", x, y, z);
+  ThrottlePacket *throttle_packet = comms.get_throttle_packet();
+   
+  if(comms.connected()){
+   Serial.printf("packet: %d\n",throttle_packet->throttle);
+    // Serial.printf("connected: %d %d\n",comms.get_link()->droppedRxPackets(),micros(), throttle_packet->throttle);
+  }else{
+    Serial.println("disconnected");
+  }
+
+  // now send telemetry
+  TelemetryPacket telemetry_packet;
+  telemetry_packet.a_x  = x;
+  telemetry_packet.a_y  = y;
+  telemetry_packet.a_z  = z;
+
+  comms.send(&telemetry_packet);
 }
 
 void Robot::motor_update() {
