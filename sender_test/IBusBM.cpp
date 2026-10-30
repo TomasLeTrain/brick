@@ -274,46 +274,47 @@ void IBusBM::loop(void) {
           // Checksum is all fine Execute command - 
           uint8_t adr = buffer[0] & 0x0f;
           if (buffer[0]==PROTOCOL_COMMAND40) {
-	    uint8_t pos = 1;
-	    uint8_t chan = 0;
-	    uint8_t chan_high = 14;
-            // Valid servo command received - extract channel data
-	    //for (uint8_t i = 1; i < PROTOCOL_CHANNELS * 2 + 1; i += 2) {
-	    //  channel[i / 2] = buffer[i] | (buffer[i + 1] << 8);
-	    //}
-	    //cnt_rec++;
-	    
-	    // This code is updated to work for AFHDS 3 ... but it also works for 2A, so we can replace the old code.
-	    // Given the interleaving it's a little more work
-	    for (int y=0; y<4; y++) {
-	      // From here on, we're looking at servo channel data ...
-	      // First channel // chan 15 byte 1
-	      channel[chan] = buffer[pos] | ((buffer[pos + 1] & 0x0f) << 8);
-	      pos++;
-	      chan++;
-	      channel[chan_high] = (buffer[pos] >> 4);
-	      pos++;
-	      // Second channel // chan 15 byte 2
-	      channel[chan] = buffer[pos] | ((buffer[pos + 1] & 0x0f) << 8);
-	      pos++;
-	      chan++;
-	      channel[chan_high] = channel[chan_high] | ((buffer[pos] >> 4) << 4);
-	      pos++;
-	      // Third channel // chan 15 byte 3
-	      channel[chan] = buffer[pos] | ((buffer[pos + 1] & 0x0f) << 8);
-	      pos++;
-	      chan++;
-	      channel[chan_high] = channel[chan_high] | ((buffer[pos] >> 4) << 8);
-	      chan_high++;
-	      pos++;
-	    }
-	    // Ok, we should be up to channel 12 /18 ... only 2 channels left.
-	    // Channels 12/13 are the last couple of bytes.
-	    for (int z=0; z<2; z++){
-	      channel[chan] = buffer[pos] | ((buffer[pos + 1] & 0x0f) << 8);
-	      pos+=2;
-	      chan++;
-	    }
+			uint8_t pos = 1;
+			uint8_t chan = 0;
+			uint8_t chan_high = 14;
+
+			// Valid servo command received - extract channel data
+			for (uint8_t i = 1; i < PROTOCOL_CHANNELS * 2 + 1; i += 2) {
+			 channel[i / 2] = buffer[i] | (buffer[i + 1] << 8);
+			}
+			cnt_rec++;
+
+			// This code is updated to work for AFHDS 3 ... but it also works for 2A, so we can replace the old code.
+			// Given the interleaving it's a little more work
+			// for (int y=0; y<4; y++) {
+			//   // From here on, we're looking at servo channel data ...
+			//   // First channel // chan 15 byte 1
+			//   channel[chan] = buffer[pos] | ((buffer[pos + 1] & 0x0f) << 8);
+			//   pos++;
+			//   chan++;
+			//   channel[chan_high] = (buffer[pos] >> 4);
+			//   pos++;
+			//   // Second channel // chan 15 byte 2
+			//   channel[chan] = buffer[pos] | ((buffer[pos + 1] & 0x0f) << 8);
+			//   pos++;
+			//   chan++;
+			//   channel[chan_high] = channel[chan_high] | ((buffer[pos] >> 4) << 4);
+			//   pos++;
+			//   // Third channel // chan 15 byte 3
+			//   channel[chan] = buffer[pos] | ((buffer[pos + 1] & 0x0f) << 8);
+			//   pos++;
+			//   chan++;
+			//   channel[chan_high] = channel[chan_high] | ((buffer[pos] >> 4) << 8);
+			//   chan_high++;
+			//   pos++;
+			// }
+			// // Ok, we should be up to channel 12 /18 ... only 2 channels left.
+			// // Channels 12/13 are the last couple of bytes.
+			// for (int z=0; z<2; z++){
+			//   channel[chan] = buffer[pos] | ((buffer[pos + 1] & 0x0f) << 8);
+			//   pos+=2;
+			//   chan++;
+			// }
           } else if (adr<=NumberSensors && adr>0 && len==1) {
 
             // all sensor data commands go here

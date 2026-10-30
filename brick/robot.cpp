@@ -74,13 +74,14 @@ void Robot::general_update() {
   int printing_time = 20;
   if(comms.connected()){
     if(uint32_t(millis() - lastMessage) >= printing_time){
-     Serial.printf("l_lr=%d,l_ud=%d,r_lr=%d,r_ud=%d,kl=%d,kr=%d\n",
+     Serial.printf("l_lr=%d,l_ud=%d,r_lr=%d,r_ud=%d,kl=%d,kr=%d,c=%d\n",
      throttle_packet->left_lr,
      throttle_packet->left_ud,
      throttle_packet->right_lr,
      throttle_packet->right_ud,
      throttle_packet->knob_left,
-     throttle_packet->knob_right
+     throttle_packet->knob_right,
+     throttle_packet->connected
      );
      lastMessage = millis();
   //  Serial.printf("packet: %d\n",throttle_packet->throttle);

@@ -21,7 +21,6 @@ void received(const uint8_t *data, size_t length, void * arg) {
   if(res){
     // Serial.printf("x:%.3f,y:%.3f,z:%.3f\n", packet.a_x, packet.a_y, packet.a_z);
     digitalWrite(LED_BUILTIN, LOW);
-    // Serial.printf("received data %d\n", micros());
   }else{
     Serial.println("bad packet!");
   }
@@ -33,10 +32,6 @@ void received(const uint8_t *data, size_t length, void * arg) {
 void setup() {
   Serial.begin(115200);
 
-  Serial.println("init thingy");
-
-  // iBUS object connected to serial2 RX2 pin and use timer 1
-  // IBus.begin(Serial0, 1);
   IBus.begin(Serial0, IBUSBM_NOTIMER);
 
   pinMode(LED_BUILTIN,OUTPUT);
@@ -54,11 +49,15 @@ void setup() {
   Serial.println("Broadcasting discovery; waiting for slave...");
 }
 
+int last_cnt_rec_update = 0;
+int last_cnt_rec = 0;
+
 void loop() {
   static uint8_t data_buffer[228];
   ThrottlePacket packet;
 
-  int time_between_packets = 20;
+  // slightly smaller than delay so gets executed every 20 ish msec
+  int time_between_packets = 19;
   digitalWrite(LED_BUILTIN, HIGH);
 
   peer_link.update(); // Must run frequently, including while disconnected.
@@ -66,40 +65,78 @@ void loop() {
 
   // 0 - right, left-right
   // 1 - right, up-down
-  // 2 - left, up-down
-  // 3- left, left-right
+  // 2 - left, left-right
+  // 3 - left, up-down
   // 4 - vra
   // 5 - vrb
   packet.right_lr = IBus.readChannel(0) - 1000;
   packet.right_ud = IBus.readChannel(1) - 1000;
 
-  packet.left_lr = IBus.readChannel(2) - 1000;
-  packet.left_ud = IBus.readChannel(3) - 1000;
+  packet.left_lr = IBus.readChannel(3) - 1000;
+  packet.left_ud = IBus.readChannel(2) - 1000;
 
   packet.knob_left = IBus.readChannel(4) - 1000;
   packet.knob_right = IBus.readChannel(5) - 1000;
 
+  // assume connected, updated later
+  packet.connected = true;
 
+  // TODO: on controller dc, sometimes toggles between frozen values / failsafe values for a couple secs, then goes back to normal
+
+  // two failsafe methods:
+  // - check if no signal (through cnt_rec)
+  // - check if controller is not connected (through failsafe values)
+
+  // failsafe values
+  // NOTE: MUST KEEP UPDATED AT ALL TIMES
+  uint16_t fail_l_lr = 177;
+  uint16_t fail_l_ud = 2;
+  uint16_t fail_r_lr = 690;
+  uint16_t fail_r_ud = 327;
+  uint16_t fail_kl = 255;
+  uint16_t fail_kr = 794;
+
+  int fail_cnt = 0;
+  if(fail_l_lr == packet.left_lr) fail_cnt++;
+  if(fail_l_ud == packet.left_ud) fail_cnt++;
+  if(fail_r_lr == packet.right_lr) fail_cnt++;
+  if(fail_r_ud == packet.right_ud) fail_cnt++;
+  if(fail_kl == packet.knob_left) fail_cnt++;
+  if(fail_kr == packet.knob_right) fail_cnt++;
+
+  if(fail_cnt >= 5){
+    // more than likely a disconnect, indicate such
+    packet.connected = false;
+  }
+
+  if(IBus.cnt_rec != last_cnt_rec){
+    last_cnt_rec = IBus.cnt_rec;
+    last_cnt_rec_update = millis();
+  }
+
+  // way too long without any new packets, disconnect
+  if(millis() - last_cnt_rec_update > 100){
+    packet.connected = false;
+  }  
 
   static uint32_t lastMessage = 0;
 
   if (peer_link.connected() && uint32_t(millis() - lastMessage) >= time_between_packets) {
     size_t n = packet.serialize(data_buffer);
-    Serial.printf("l_lr=%d,l_ud=%d,r_lr=%d,r_ud=%d,kl=%d,kr=%d\n",
-    packet.left_ud,
+    Serial.printf("l_lr=%d,l_ud=%d,r_lr=%d,r_ud=%d,kl=%d,kr=%d,c=%d\n",
     packet.left_lr,
+    packet.left_ud,
     packet.right_lr,
     packet.right_ud,
     packet.knob_left,
-    packet.knob_right
+    packet.knob_right,
+    packet.connected
     );
-
-    // Serial.printf("sent data: %d\n", data_buffer);
     if (peer_link.sendData(data_buffer, n)) lastMessage = millis();
   }else{
 
   }
 
-  delay(20);
+  delay(5);
 }
 

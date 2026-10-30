@@ -47,6 +47,8 @@ struct ThrottlePacket {
   uint16_t knob_left;
   uint16_t knob_right;
 
+  bool connected;
+
   size_t serialize(uint8_t *buffer);
   bool deserialize(const uint8_t *data, size_t length);
   static size_t expected_packet_size() { return 8; }
@@ -64,6 +66,7 @@ inline size_t ThrottlePacket::serialize(uint8_t *buffer) {
   result |= uint64_t(right_ud & mask) << 30;
   result |= uint64_t(knob_left & mask) << 40;
   result |= uint64_t(knob_right & mask) << 50;
+  result |= uint64_t(connected) << 60;
 
   for (int i = 0; i < 8; i++) {
     buffer[i] = (result >> (8 * i)) & 0xff;
@@ -91,6 +94,7 @@ inline bool ThrottlePacket::deserialize(const uint8_t *data, size_t length) {
   right_ud = (result >> 30) & mask;
   knob_left = (result >> 40) & mask;
   knob_right = (result >> 50) & mask;
+  connected = ((result >> 60) & 1) == 1;
 
   return true;
 }
