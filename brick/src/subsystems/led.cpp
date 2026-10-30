@@ -4,8 +4,6 @@
 #include <cstring>
 
 // TODO: make destructor
-
-// rmt_item32_t led_rmt_data[3 * NUM_LEDS * 8];
 rmt_symbol_word_t led_rmt_data[3 * NUM_LEDS * 8];
 
 uint8_t pixel_color[3 * NUM_LEDS];
@@ -17,11 +15,9 @@ bool LED::init_rmt(gpio_num_t gpio) {
       .resolution_hz =
           10 * 1000 *
           1000, // 10 MHz tick resolution, i.e., 1 ticks = 100 nanosecs
-      .mem_block_symbols = 64,        // memory block size, 64 * 4 = 256 Bytes
+      .mem_block_symbols = 64, // memory block size, 64 * 4 = 256 Bytes
       .trans_queue_depth =
           4, // set the number of transactions that can pend in the background
-      // .flags.invert_out = false, // do not invert output signal
-      // .flags.with_dma = false,   // do not need DMA backend
   };
 
   if (rmt_new_tx_channel(&tx_chan_config, &_rmt_tx_channel) != ESP_OK) {
@@ -40,15 +36,26 @@ bool LED::init_rmt(gpio_num_t gpio) {
   return true;
 }
 
-// TODO: impl
-void cleanup() {}
+void LED::cleanup() {
+  if (_rmt_tx_channel) {
+    rmt_disable(_rmt_tx_channel);
+    rmt_del_channel(_rmt_tx_channel);
+    _rmt_tx_channel = nullptr;
+  }
+  if (_enc) {
+    rmt_del_encoder(_enc);
+    _enc = nullptr;
+  }
+}
+
+LED::~LED() { cleanup(); }
 
 LED::LED() {
   bool result = init_rmt(NEOPIXEL_PIN);
 
+  // cleanup on failure
   if (!result) {
-    // TODO: impl
-    cleanup(); // Clean up any allocated resources on failure
+    cleanup();
     return;
   }
 }

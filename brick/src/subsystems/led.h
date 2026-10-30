@@ -6,6 +6,7 @@
 class LED {
 public:
   LED();
+  ~LED();
 
   void leds_on_ready();
   void leds_on_low_battery();
@@ -20,6 +21,8 @@ private:
   void write_pixel();
 
   bool init_rmt(gpio_num_t gpio);
+
+  void cleanup();
 
   rmt_channel_handle_t _rmt_tx_channel = nullptr; // RMT transmit channel handle
   rmt_encoder_handle_t _enc = nullptr;
