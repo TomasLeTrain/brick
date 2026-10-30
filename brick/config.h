@@ -11,7 +11,7 @@
 
 // for wifi connection
 #define HEARTBEAT_MS 50
-#define TIMEOUT_MS 150
+#define TIMEOUT_MS 250
 #define NETWORK_ID 0x12345678
 
 // // ------------ Spin control settings ----------------

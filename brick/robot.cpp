@@ -70,9 +70,22 @@ void Robot::general_update() {
   // Serial.printf("x:%.3f,y:%.3f,z:%.3f\n", x, y, z);
   ThrottlePacket *throttle_packet = comms.get_throttle_packet();
    
+  static uint32_t lastMessage = 0;
+  int printing_time = 20;
   if(comms.connected()){
-   Serial.printf("packet: %d\n",throttle_packet->throttle);
+    if(uint32_t(millis() - lastMessage) >= printing_time){
+     Serial.printf("l_lr=%d,l_ud=%d,r_lr=%d,r_ud=%d,kl=%d,kr=%d\n",
+     throttle_packet->left_lr,
+     throttle_packet->left_ud,
+     throttle_packet->right_lr,
+     throttle_packet->right_ud,
+     throttle_packet->knob_left,
+     throttle_packet->knob_right
+     );
+     lastMessage = millis();
+  //  Serial.printf("packet: %d\n",throttle_packet->throttle);
     // Serial.printf("connected: %d %d\n",comms.get_link()->droppedRxPackets(),micros(), throttle_packet->throttle);
+    }
   }else{
     Serial.println("disconnected");
   }

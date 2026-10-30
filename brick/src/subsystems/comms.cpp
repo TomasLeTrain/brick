@@ -20,8 +20,6 @@ void Comms::on_data(const uint8_t *data, size_t length) {
   // TODO: should definetely do something with res
   // maybe increase packet loss, or have callback for on bad packet?
   bool res = current_throttle.deserialize(data, length);
-
-  Serial.printf("data cb %d\n", micros());
 }
 
 bool Comms::send(TelemetryPacket *packet) {
