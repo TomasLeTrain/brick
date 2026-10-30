@@ -9,9 +9,6 @@
 #define I2C_SDA_PIN GPIO_NUM_5
 #define I2C_SCL_PIN GPIO_NUM_6
 
-// // ------------ safety settings ----------------------
-// #define CONTROL_UPDATE_TIMEOUT_MS 3000
-//
 // // ------------ Spin control settings ----------------
 // #define ACCELEROMETER_HARDWARE_RADIUS_CM 5.13f
 // // Ant-tato distance: 3.415f
