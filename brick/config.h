@@ -9,6 +9,11 @@
 #define I2C_SDA_PIN GPIO_NUM_5
 #define I2C_SCL_PIN GPIO_NUM_6
 
+// for wifi connection
+#define HEARTBEAT_MS 50
+#define TIMEOUT_MS 150
+#define NETWORK_ID 0x12345678
+
 // // ------------ Spin control settings ----------------
 // #define ACCELEROMETER_HARDWARE_RADIUS_CM 5.13f
 // // Ant-tato distance: 3.415f
