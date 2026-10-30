@@ -2,6 +2,7 @@
 
 #include "src/lib/AlfredoDShot.h"
 #include "src/subsystems/accelerometer.h"
+#include "src/subsystems/comms.h"
 #include "src/subsystems/led.h"
 
 class Robot {
@@ -19,6 +20,7 @@ public:
   AlfredoDShot right_motor;
   Accelerometer accel;
   LED leds;
+  Comms comms;
 
   bool arming = true;
   float throttle = 0.1;

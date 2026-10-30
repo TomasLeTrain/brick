@@ -5,6 +5,8 @@
 Robot::Robot() {}
 
 void Robot::begin() {
+  // TODO: check for any begin errors and report with leds
+
   left_motor.begin(LEFT_MOTOR_PIN, DSHOT600, false, 14);
   right_motor.begin(RIGHT_MOTOR_PIN, DSHOT600, false, 14);
 
@@ -25,6 +27,14 @@ void Robot::begin() {
     accel.sample_offset();
     delay(1);
   }
+
+  Serial.println("did accel");
+
+  // init comms
+  comms.begin();
+
+  Serial.println("init comms");
+
   // Serial.println("calibrated accel");
 }
 
@@ -37,12 +47,16 @@ void Robot::arming_sequence() {
 }
 
 void Robot::general_update() {
+  comms.update();
 
-  //  Serial.printf("general update %d\n", micros());
+  if (comms.connected()) {
+    leds.leds_on_rgb(0, 0, 15);
+  } else {
+    leds.leds_on_no_controller();
+  }
 
-  // leds.leds_on_gradient(thing);
   leds.leds_on_rgb(0, 0, 15);
-  // leds.leds_on_no_controller();
+
   accel.update_reading();
 
   float x = accel.get_x_accel(false);

@@ -154,11 +154,11 @@ void LIS331ESP::HPFOnIntPin(bool enable, uint8_t pin)
   {
     if (pin == 1)
     {
-      data &= ~1<<3;
+      data &= ~(1<<3);
     }
     if (pin == 2)
     {
-      data &= ~1<<4;
+      data &= ~(1<<4);
     }
   }
   LIS331_write(CTRL_REG2, &data, 1);

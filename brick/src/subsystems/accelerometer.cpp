@@ -10,6 +10,8 @@ void Accelerometer::init(int addr) {
   lis.begin(LIS331ESP::USE_I2C);
   lis.setFullScale(LIS331ESP::HIGH_RANGE);
   // lis.setODR(LIS331ESP::DR_1000HZ);
+
+  // TODO: check for i2c disconnect and indicate as error
 }
 
 // Assumption: We're only calling this when the bot is at rest, right-side-up,
