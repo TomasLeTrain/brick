@@ -112,7 +112,7 @@ void loop() {
   if(IBus.cnt_rec != last_cnt_rec){
     last_cnt_rec = IBus.cnt_rec;
     last_cnt_rec_update = millis();
-  }
+  } 
 
   // way too long without any new packets, disconnect
   if(millis() - last_cnt_rec_update > 100){

@@ -31,9 +31,8 @@ void Robot::begin() {
 
   Serial.println("did accel");
 
-  // NOTE: if comms used within 800 msec if startup then a temporary disconnect can occur
-  // shouldn't cause an issue so no delay is added here
-  // init comms
+  // NOTE: if comms used within 800 msec if startup then a temporary disconnect
+  // can occur shouldn't cause an issue so no delay is added here init comms
   comms.begin();
 
   Serial.println("init comms");
@@ -54,7 +53,7 @@ void Robot::general_update() {
   comms.update();
 
   if (comms.connected()) {
-    leds.leds_on_rgb(0, 0, 15);
+    leds.leds_on_rgb(0, 0, 255);
   } else {
     leds.leds_on_no_controller();
   }
@@ -69,33 +68,58 @@ void Robot::general_update() {
 
   // Serial.printf("x:%.3f,y:%.3f,z:%.3f\n", x, y, z);
   ThrottlePacket *throttle_packet = comms.get_throttle_packet();
-   
+
   static uint32_t lastMessage = 0;
   int printing_time = 20;
-  if(comms.connected()){
-    if(uint32_t(millis() - lastMessage) >= printing_time){
-     Serial.printf("l_lr=%d,l_ud=%d,r_lr=%d,r_ud=%d,kl=%d,kr=%d,c=%d\n",
-     throttle_packet->left_lr,
-     throttle_packet->left_ud,
-     throttle_packet->right_lr,
-     throttle_packet->right_ud,
-     throttle_packet->knob_left,
-     throttle_packet->knob_right,
-     throttle_packet->connected
-     );
-     lastMessage = millis();
-  //  Serial.printf("packet: %d\n",throttle_packet->throttle);
-    // Serial.printf("connected: %d %d\n",comms.get_link()->droppedRxPackets(),micros(), throttle_packet->throttle);
+
+  if (comms.connected() && throttle_packet->connected) {
+    // in range of [-0.5,0.5]
+    tank_linear = (throttle_packet->right_ud / 1000.0) - 0.5;
+    tank_angular = (throttle_packet->right_lr / 1000.0) - 0.5;
+
+    // get in range of [-1,1]
+    tank_linear /= 0.5;
+    tank_angular /= 0.5;
+
+    const float MAX_TANK_MAG = 0.3;
+
+    // get in range [-MAX_TANK_MAG,MAX_TANK_MAG]
+    tank_linear *= MAX_TANK_MAG;
+    tank_angular *= MAX_TANK_MAG;
+
+    // Serial.printf("calc: %.2f %.2f\n",tank_linear, tank_angular);
+  } else {
+    // not connected, power down
+    // TODO: have separate powerdown state instead of using power directly
+    tank_angular = 0;
+    tank_linear = 0;
+  }
+
+  if (comms.connected()) {
+    if (throttle_packet->connected)
+      leds.set_brightness((throttle_packet->left_ud * 20) / 1000);
+
+    if (uint32_t(millis() - lastMessage) >= printing_time) {
+      Serial.printf("l_lr=%d,l_ud=%d,r_lr=%d,r_ud=%d,kl=%d,kr=%d,c=%d\n",
+                    throttle_packet->left_lr, throttle_packet->left_ud,
+                    throttle_packet->right_lr, throttle_packet->right_ud,
+                    throttle_packet->knob_left, throttle_packet->knob_right,
+                    throttle_packet->connected);
+      lastMessage = millis();
+      //  Serial.printf("packet: %d\n",throttle_packet->throttle);
+      // Serial.printf("connected: %d
+      // %d\n",comms.get_link()->droppedRxPackets(),micros(),
+      // throttle_packet->throttle);
     }
-  }else{
+  } else {
     Serial.println("disconnected");
   }
 
   // now send telemetry
   TelemetryPacket telemetry_packet;
-  telemetry_packet.a_x  = x;
-  telemetry_packet.a_y  = y;
-  telemetry_packet.a_z  = z;
+  telemetry_packet.a_x = x;
+  telemetry_packet.a_y = y;
+  telemetry_packet.a_z = z;
 
   comms.send(&telemetry_packet);
 }
@@ -103,7 +127,27 @@ void Robot::general_update() {
 void Robot::motor_update() {
   if (arming) {
     left_motor.send(command);
+    right_motor.send(command);
   } else {
-    left_motor.sendThrottle(throttle);
+    const float MAX_TANK_MAG = 0.2;
+
+    // float left_power = tank_linear - tank_angular;
+    // float right_power = tank_linear + tank_angular;
+    // float max_mag = max(left_power, right_power);
+
+    // // saturation compensation
+    // if (max_mag > 1) {
+    //   left_power /= max_mag;
+    //   right_power /= max_mag;
+    // }
+
+    // // cap by max mag
+    // left_power *= MAX_TANK_MAG;
+    // right_power *= MAX_TANK_MAG;
+    // Serial.printf("moving with speeds: %.2f %.2f\n",left_power,right_power);
+
+		// only act on positive
+    left_motor.sendThrottle(max(tank_linear, 0.0f));
+    right_motor.sendThrottle(max(tank_linear, 0.0f));
   }
 }

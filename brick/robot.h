@@ -25,4 +25,7 @@ public:
   bool arming = true;
   float throttle = 0.1;
   int command = 0;
+
+  float tank_linear = 0;
+  float tank_angular = 0;
 };
