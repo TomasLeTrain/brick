@@ -2,26 +2,27 @@
 #include "IBusBM.h"
 #include "../common/packets.h"
 
+#define NETWORK_ID 0x12345678
 #define HEARTBEAT_MS 50
 #define TIMEOUT_MS 250
 
-NowPair peer_link(NowPair::Role::Master, 6, 0x12345678, HEARTBEAT_MS, TIMEOUT_MS);
+NowPair peer_link(NowPair::Role::Master, 6, NETWORK_ID, HEARTBEAT_MS, TIMEOUT_MS);
 bool peerConnected = false;
 
 IBusBM IBus;
 
-void connectionChanged(bool connected, void * arg) {
+void connectionChanged(bool connected, void *arg) {
   peerConnected = connected;
   Serial.println(connected ? "Slave connected" : "Slave disconnected");
 }
 
-void received(const uint8_t *data, size_t length, void * arg) {
+void received(const uint8_t *data, size_t length, void *arg) {
   TelemetryPacket packet;
   bool res = packet.deserialize(data, length);
-  if(res){
+  if (res) {
     // Serial.printf("x:%.3f,y:%.3f,z:%.3f\n", packet.a_x, packet.a_y, packet.a_z);
     digitalWrite(LED_BUILTIN, LOW);
-  }else{
+  } else {
     Serial.println("bad packet!");
   }
   // Serial.print("Slave says: ");
@@ -34,7 +35,7 @@ void setup() {
 
   IBus.begin(Serial0, IBUSBM_NOTIMER);
 
-  pinMode(LED_BUILTIN,OUTPUT);
+  pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH);
 
   // needed before any networking or else there is a slight disconnect at beginning
@@ -60,7 +61,7 @@ void loop() {
   int time_between_packets = 19;
   digitalWrite(LED_BUILTIN, HIGH);
 
-  peer_link.update(); // Must run frequently, including while disconnected.
+  peer_link.update();  // Must run frequently, including while disconnected.
   IBus.loop();
 
   // 0 - right, left-right
@@ -97,46 +98,43 @@ void loop() {
   uint16_t fail_kr = 794;
 
   int fail_cnt = 0;
-  if(fail_l_lr == packet.left_lr) fail_cnt++;
-  if(fail_l_ud == packet.left_ud) fail_cnt++;
-  if(fail_r_lr == packet.right_lr) fail_cnt++;
-  if(fail_r_ud == packet.right_ud) fail_cnt++;
-  if(fail_kl == packet.knob_left) fail_cnt++;
-  if(fail_kr == packet.knob_right) fail_cnt++;
+  if (fail_l_lr == packet.left_lr) fail_cnt++;
+  if (fail_l_ud == packet.left_ud) fail_cnt++;
+  if (fail_r_lr == packet.right_lr) fail_cnt++;
+  if (fail_r_ud == packet.right_ud) fail_cnt++;
+  if (fail_kl == packet.knob_left) fail_cnt++;
+  if (fail_kr == packet.knob_right) fail_cnt++;
 
-  if(fail_cnt >= 5){
+  if (fail_cnt >= 5) {
     // more than likely a disconnect, indicate such
     packet.connected = false;
   }
 
-  if(IBus.cnt_rec != last_cnt_rec){
+  if (IBus.cnt_rec != last_cnt_rec) {
     last_cnt_rec = IBus.cnt_rec;
     last_cnt_rec_update = millis();
-  } 
+  }
 
   // way too long without any new packets, disconnect
-  if(millis() - last_cnt_rec_update > 100){
+  if (millis() - last_cnt_rec_update > 100) {
     packet.connected = false;
-  }  
+  }
 
   static uint32_t lastMessage = 0;
 
   if (peer_link.connected() && uint32_t(millis() - lastMessage) >= time_between_packets) {
     size_t n = packet.serialize(data_buffer);
     Serial.printf("l_lr=%d,l_ud=%d,r_lr=%d,r_ud=%d,kl=%d,kr=%d,c=%d\n",
-    packet.left_lr,
-    packet.left_ud,
-    packet.right_lr,
-    packet.right_ud,
-    packet.knob_left,
-    packet.knob_right,
-    packet.connected
-    );
+                  packet.left_lr,
+                  packet.left_ud,
+                  packet.right_lr,
+                  packet.right_ud,
+                  packet.knob_left,
+                  packet.knob_right,
+                  packet.connected);
     if (peer_link.sendData(data_buffer, n)) lastMessage = millis();
-  }else{
-
+  } else {
   }
 
   delay(5);
 }
-

@@ -1,9 +1,10 @@
 #pragma once
 
+#include "config.h"
 #include "src/lib/AlfredoDShot.h"
-#include "src/subsystems/accelerometer.h"
 #include "src/subsystems/comms.h"
 #include "src/subsystems/led.h"
+#include "src/subsystems/rpm_estimator.h"
 
 class Robot {
 public:
@@ -18,7 +19,10 @@ public:
 
   AlfredoDShot left_motor;
   AlfredoDShot right_motor;
+
+  RpmEstimator rpm_estimator;
   Accelerometer accel;
+
   LED leds;
   Comms comms;
 

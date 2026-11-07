@@ -49,16 +49,11 @@ void loop() {
 void motor_update(void* param){
   while(true){
     robot.motor_update();
-    vTaskDelay(1); 
   }
 }
 
 void general_update(void* param){
-  int thing = 0;
   while(true){
     robot.general_update();
-
-  vTaskDelay(10);
-
   }
 }

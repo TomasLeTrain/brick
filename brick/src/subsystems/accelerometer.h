@@ -13,7 +13,7 @@ public:
   float get_y_accel(bool fetch_data = true);
   float get_z_accel(bool fetch_data = true);
 
-  float get_xy_accel(bool fetch_data = true);
+  bool has_connection_error() { return lis.hasConnectionError(); };
 
 private:
   LIS331ESP lis;

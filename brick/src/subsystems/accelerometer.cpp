@@ -9,9 +9,8 @@ void Accelerometer::init(int addr) {
   lis.setI2CAddr(addr);
   lis.begin(LIS331ESP::USE_I2C);
   lis.setFullScale(LIS331ESP::HIGH_RANGE);
-  // lis.setODR(LIS331ESP::DR_1000HZ);
-
-  // TODO: check for i2c disconnect and indicate as error
+  lis.setODR(LIS331ESP::DR_1000HZ);
+  // TODO: check for i2c disconnect and indicate as error?
 }
 
 // Assumption: We're only calling this when the bot is at rest, right-side-up,
@@ -57,14 +56,4 @@ float Accelerometer::get_z_accel(bool fetch_data) {
 
   float zg = lis.convertToG(400, z);
   return zg - z_offset;
-}
-
-float Accelerometer::get_xy_accel(bool fetch_data) {
-  if (fetch_data)
-    update_reading();
-
-  float xg = get_x_accel(false);
-  float yg = get_y_accel(false);
-
-  return sqrt(xg * xg + yg * yg);
 }
