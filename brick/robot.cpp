@@ -77,11 +77,18 @@ void Robot::general_update() {
   }
 
   // Serial.println("accel reading");
+  // TODO: can read from accel at faster rate, can also only read x/y and read z
+  // less often
   accel.update_reading();
 
   float x = accel.get_x_accel(false);
   float y = accel.get_y_accel(false);
   float z = accel.get_z_accel(false);
+
+
+  uint16_t raw_x = accel.get_raw_x_accel();
+  uint16_t raw_y = accel.get_raw_y_accel();
+  uint16_t raw_z = accel.get_raw_z_accel();
   // Serial.println("getting packet");
 
   rpm_estimator.update(x, y);
@@ -121,11 +128,14 @@ void Robot::general_update() {
       leds.set_brightness((throttle_packet->left_ud * 20) / 1000);
 
     if (uint32_t(millis() - lastMessage) >= printing_time) {
-      Serial.printf("l_lr=%d,l_ud=%d,r_lr=%d,r_ud=%d,kl=%d,kr=%d,c=%d\n",
-                    throttle_packet->left_lr, throttle_packet->left_ud,
-                    throttle_packet->right_lr, throttle_packet->right_ud,
-                    throttle_packet->knob_left, throttle_packet->knob_right,
-                    throttle_packet->connected);
+      // Serial.printf("l_lr=%d,l_ud=%d,r_lr=%d,r_ud=%d,kl=%d,kr=%d,c=%d\n",
+      //               throttle_packet->left_lr, throttle_packet->left_ud,
+      //               throttle_packet->right_lr, throttle_packet->right_ud,
+      //               throttle_packet->knob_left, throttle_packet->knob_right,
+      //               throttle_packet->connected);
+    Serial.printf("x:%1.3f,y:%.3f,z:%.3f\n", x, y, z);
+    // Serial.printf("x:%d,y:%d,z:%d\n", raw_x, raw_y, raw_z);
+
       lastMessage = millis();
       //  Serial.printf("packet: %d\n",throttle_packet->throttle);
       // Serial.printf("connected: %d
@@ -138,9 +148,10 @@ void Robot::general_update() {
 
   // now send telemetry
   TelemetryPacket telemetry_packet;
-  telemetry_packet.a_x = x;
-  telemetry_packet.a_y = y;
-  telemetry_packet.a_z = z;
+  telemetry_packet.a_x = raw_x;
+  telemetry_packet.a_y = raw_y;
+  telemetry_packet.a_z = raw_z;
+  telemetry_packet.rpm = rpm_estimator.get_estimated_rpm();
 
   comms.send(&telemetry_packet);
 

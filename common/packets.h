@@ -4,13 +4,22 @@
 #include <cstdint>
 
 struct TelemetryPacket {
-  uint16_t a_x;
-  uint16_t a_y;
-  uint16_t a_z;
+  // because of offset accel can be negative
+  // TODO: can offload int representation to serializing
+  int16_t a_x;
+  int16_t a_y;
+  int16_t a_z;
+
+  float rpm;
 
   bool deserialize(const uint8_t *data, size_t length);
   size_t serialize(uint8_t *buffer);
-  static size_t expected_packet_size() { return 6; }
+  static size_t expected_packet_size() { return 8; }
+
+  float static convertToG(int16_t reading, int16_t maxScale = 400) {
+    float result = (float(maxScale) * float(reading)) / 2047;
+    return result;
+  }
 };
 
 inline size_t TelemetryPacket::serialize(uint8_t *buffer) {
@@ -20,7 +29,11 @@ inline size_t TelemetryPacket::serialize(uint8_t *buffer) {
   buffer[3] = (a_y >> 8) & 0xff;
   buffer[4] = a_z & 0xff;
   buffer[5] = (a_z >> 8) & 0xff;
-  return 6;
+  // TODO: assumes max possible rpm is 4000
+  int16_t ser_rpm = (rpm * 2047) / 4000;
+  buffer[6] = ser_rpm & 0xff;
+  buffer[7] = (ser_rpm >> 8) & 0xff;
+  return 8;
 }
 
 inline bool TelemetryPacket::deserialize(const uint8_t *data, size_t length) {
@@ -31,6 +44,8 @@ inline bool TelemetryPacket::deserialize(const uint8_t *data, size_t length) {
   a_x = data[0] | (data[1] << 8);
   a_y = data[2] | (data[3] << 8);
   a_z = data[4] | (data[5] << 8);
+  int16_t ser_rpm = data[6] | (data[7] << 8);
+  rpm = (ser_rpm * 4000.0) / 2047.0;
 
   return true;
 }

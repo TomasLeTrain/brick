@@ -80,6 +80,22 @@ void LIS331ESP::readAxes(int16_t &x, int16_t &y, int16_t &z) {
   z = z >> 4;
 }
 
+void LIS331ESP::readXY(int16_t &x, int16_t &y) {
+  uint8_t data[4]; // create a buffer for our incoming data
+  LIS331_read(OUT_X_L, &data[0], 1);
+  LIS331_read(OUT_X_H, &data[1], 1);
+  LIS331_read(OUT_Y_L, &data[2], 1);
+  LIS331_read(OUT_Y_H, &data[3], 1);
+  // The data that comes out is 12-bit data, left justified, so the lower
+  //  four bits of the data are always zero. We need to right shift by four,
+  //  then typecase the upper data to an integer type so it does a signed
+  //  right shift.
+  x = data[0] | data[1] << 8;
+  y = data[2] | data[3] << 8;
+  x = x >> 4;
+  y = y >> 4;
+}
+
 uint8_t LIS331ESP::readReg(uint8_t reg_address) {
   uint8_t data;
   LIS331_read(reg_address, &data, 1);

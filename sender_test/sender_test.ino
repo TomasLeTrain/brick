@@ -20,7 +20,8 @@ void received(const uint8_t *data, size_t length, void *arg) {
   TelemetryPacket packet;
   bool res = packet.deserialize(data, length);
   if (res) {
-    // Serial.printf("x:%.3f,y:%.3f,z:%.3f\n", packet.a_x, packet.a_y, packet.a_z);
+    Serial.printf("x:%1.3f,y:%.3f,z:%.3f,rpm:%.3f\n", TelemetryPacket::convertToG(packet.a_x), TelemetryPacket::convertToG(packet.a_y), TelemetryPacket::convertToG(packet.a_z), packet.rpm);
+    // Serial.printf("x:%d,y:%d,z:%d\n", packet.a_x, packet.a_y, packet.a_z);
     digitalWrite(LED_BUILTIN, LOW);
   } else {
     Serial.println("bad packet!");
@@ -124,14 +125,14 @@ void loop() {
 
   if (peer_link.connected() && uint32_t(millis() - lastMessage) >= time_between_packets) {
     size_t n = packet.serialize(data_buffer);
-    Serial.printf("l_lr=%d,l_ud=%d,r_lr=%d,r_ud=%d,kl=%d,kr=%d,c=%d\n",
-                  packet.left_lr,
-                  packet.left_ud,
-                  packet.right_lr,
-                  packet.right_ud,
-                  packet.knob_left,
-                  packet.knob_right,
-                  packet.connected);
+    // Serial.printf("l_lr=%d,l_ud=%d,r_lr=%d,r_ud=%d,kl=%d,kr=%d,c=%d\n",
+    //               packet.left_lr,
+    //               packet.left_ud,
+    //               packet.right_lr,
+    //               packet.right_ud,
+    //               packet.knob_left,
+    //               packet.knob_right,
+    //               packet.connected);
     if (peer_link.sendData(data_buffer, n)) lastMessage = millis();
   } else {
   }

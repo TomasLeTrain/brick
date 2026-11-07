@@ -9,7 +9,9 @@ void Accelerometer::init(int addr) {
   lis.setI2CAddr(addr);
   lis.begin(LIS331ESP::USE_I2C);
   lis.setFullScale(LIS331ESP::HIGH_RANGE);
-  lis.setODR(LIS331ESP::DR_1000HZ);
+  // using at 100 hz for now
+  lis.setODR(LIS331ESP::DR_100HZ);
+
   // TODO: check for i2c disconnect and indicate as error?
 }
 
@@ -33,6 +35,7 @@ void Accelerometer::sample_offset() {
 }
 
 void Accelerometer::update_reading() { lis.readAxes(x, y, z); }
+void Accelerometer::update_xy() { lis.readXY(x, y); }
 
 float Accelerometer::get_x_accel(bool fetch_data) {
   if (fetch_data)

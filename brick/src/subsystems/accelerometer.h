@@ -9,9 +9,27 @@ public:
   void sample_offset();
 
   void update_reading();
+
+  // only updates xy - faster reads than if z is included
+  void update_xy();
   float get_x_accel(bool fetch_data = true);
   float get_y_accel(bool fetch_data = true);
   float get_z_accel(bool fetch_data = true);
+
+  // converts back into int representation
+  int16_t get_raw_x_accel(bool fetch_data = true) {
+    float calc_x = get_x_accel(fetch_data);
+    return (calc_x * 2047.0f) / 400.0f;
+  }
+  int16_t get_raw_y_accel(bool fetch_data = true) {
+    float calc_y = get_y_accel(fetch_data);
+    return (calc_y * 2047.0f) / 400.0f;
+  }
+
+  int16_t get_raw_z_accel(bool fetch_data = true) {
+    float calc_z = get_z_accel(fetch_data);
+    return (calc_z * 2047.0f) / 400.0f;
+  }
 
   bool has_connection_error() { return lis.hasConnectionError(); };
 

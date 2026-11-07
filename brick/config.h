@@ -16,4 +16,4 @@
 #define NETWORK_ID 0x12345678
 
 // // ------------ Spin control settings ----------------
-#define ACCELEROMETER_HARDWARE_RADIUS_CM 5.13f
+#define ACCELEROMETER_HARDWARE_RADIUS_CM 4.48f
