@@ -5,8 +5,9 @@
 // recalculates all values dependent on input
 // call after changing any inputs
 void Melt::general_update() {
-  // (min / rot) * (1 min / 60 sec) = (sec / rot)
-  // rotation_time_micros = 1.0f / (input.rpm * 60);
+  // (min / rot) * (60 sec / 1 min) * (1'000'000 usecs / 1 sec) = (usec / rot)
+  // TODO: min rpm should be handled somewhere else?
+  rotation_time_micros = (60 * 1'000'000) / fmaxf(input.rpm, 10);
   //
   // // can move in any direction by finding the target angle, finding the
   // // difference, and moving accordingly. some impl code taken from
@@ -26,14 +27,34 @@ void Melt::general_update() {
 
   // TODO: calc the following:
   // // TODO: calcualted by PID
-  // float base_spin_power;
-  // int32_t led_start_timestamp;
-  // int32_t led_end_timestamp;
+  base_spin_power = 0;
+
+  // TODO: can flash led also in direction of vector?
+
+  // can account for all delays in the system that result in a skewed movement
+  // direction by simply changing the led offset to align with whichever
+  // direction the movement is actually going to
+  // TODO: better solution could be to figure out the delays to ensure this
+  // solution is robust?
+  // TODO: move base value to config/ make configurable at runtime?
+  float led_offset_pct = 0.5;
+
+  float led_width_micros = rotation_time_micros * config.led_width;
+  float led_offset_micros = rotation_time_micros * led_offset_pct;
+
+  float half_led_width_micros = (led_width_micros * 0.5);
+
+  // center leds around offset
+  led_start_timestamp = led_offset_micros - half_led_width_micros;
+  led_end_timestamp = led_offset_micros + half_led_width_micros;
+
+  Serial.printf("s:%d %d %d %d\n", micros(), rotation_time_micros,
+                led_start_timestamp, led_end_timestamp);
 }
 
 // updates fast loop params for how to move motors
 void Melt::fast_update() {
-  if (input.drive_type == DriveType::Melt) {
+  if (input.drive_type == DriveType::Melting) {
     fast_update_melt();
   } else if (input.drive_type == DriveType::Tank) {
     fast_update_tank();
@@ -54,12 +75,18 @@ void Melt::fast_update_melt() {
   // amount of time spent in current rotation, in us
   int32_t rotation_pct_us = micros() - rotation_start_timestamp;
 
+  const float turn_melt_multiplier = 1;
+  // TODO: figure out magnitudes and directions
+  // increasing rotation_pct_us moves the controlled heading in direction of
+  // rotation. decreasing has opposite effect
+  rotation_pct_us += input.turn_control * turn_melt_multiplier;
+
   // did a full rotation
   if (rotation_pct_us > rotation_time_micros) {
     // update time spent in rotation
     rotation_pct_us -= rotation_time_micros;
     // update when rotation started
-    rotation_time_micros += rotation_time_micros;
+    rotation_start_timestamp += rotation_time_micros;
   }
 
   float current_theta = rotation_pct_us * current_theta_multiplier;
@@ -107,6 +134,9 @@ void Melt::fast_update_melt() {
   output.right_power = right_throttle;
 
   bool leds_on = false;
+
+  Serial.printf("b:%d %d %d %d %d\n", micros(), rotation_pct_us,
+                rotation_time_micros, led_start_timestamp, led_end_timestamp);
 
   // displays heading LED at correct location
   if (led_start_timestamp > led_end_timestamp) {

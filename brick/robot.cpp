@@ -1,12 +1,13 @@
 #include "robot.h"
 #include "config.h"
+#include "src/subsystems/melt.h"
 #include <Wire.h>
 
 Robot::Robot() {}
 
 void Robot::begin() {
   // TODO: check for any begin errors and report with leds
-  leds.set_brightness(10);
+  leds.set_brightness(30);
 
   rpm_estimator.set_radius(ACCELEROMETER_HARDWARE_RADIUS_CM);
   rpm_estimator.set_alpha(0.5);
@@ -50,6 +51,11 @@ void Robot::begin() {
   // can occur shouldn't cause an issue so no delay is added here init comms
   comms.begin();
   Serial.println("init comms");
+
+  MeltConfig *config = melt.get_config();
+  config->led_width = 0.5;
+  config->max_translation_power = 0.1;
+  config->translation_method = TranslationMethod::Linear;
 }
 
 // blocking
@@ -67,39 +73,41 @@ void Robot::arming_sequence() {
 }
 
 void Robot::general_update() {
-  // Serial.println("doing update");
   comms.update();
-
-  if (comms.connected()) {
-    leds.leds_on_rgb(0, 0, 255);
-  } else {
-    leds.leds_on_no_controller();
-  }
-
-  // Serial.println("accel reading");
   // TODO: can read from accel at faster rate, can also only read x/y and read z
   // less often
   accel.update_reading();
+  accel_disconnected = accel.has_connection_error();
 
   float x = accel.get_x_accel(false);
   float y = accel.get_y_accel(false);
   float z = accel.get_z_accel(false);
-
-
   uint16_t raw_x = accel.get_raw_x_accel();
   uint16_t raw_y = accel.get_raw_y_accel();
   uint16_t raw_z = accel.get_raw_z_accel();
-  // Serial.println("getting packet");
 
   rpm_estimator.update(x, y);
+  float curr_rpm = rpm_estimator.get_estimated_rpm();
 
-  // Serial.printf("x:%.3f,y:%.3f,z:%.3f\n", x, y, z);
   ThrottlePacket *throttle_packet = comms.get_throttle_packet();
 
-  static uint32_t lastMessage = 0;
-  int printing_time = 20;
+  // TODO: deadzones!
 
-  if (comms.connected() && throttle_packet->connected) {
+  if (!comms.connected()) {
+    Serial.println("network dc");
+    connected = ConnectionState::NetworkDisconnect;
+  } else if (!throttle_packet->connected) {
+    connected = ConnectionState::ControllerDisconnect;
+  } else if (accel_disconnected) {
+    connected = ConnectionState::AccelDisconnect;
+    // TODO: add switch state
+  } else {
+    connected = ConnectionState::Ready;
+  }
+
+  if (connected == ConnectionState::Ready) {
+    // leds.set_brightness((throttle_packet->left_ud * 20) / 1000);
+
     // in range of [-0.5,0.5]
     tank_linear = (throttle_packet->right_ud / 1000.0) - 0.5;
     tank_angular = (throttle_packet->right_lr / 1000.0) - 0.5;
@@ -110,31 +118,51 @@ void Robot::general_update() {
 
     const float MAX_TANK_MAG = 0.3;
 
-    // get in range [-MAX_TANK_MAG,MAX_TANK_MAG]
+    // get in range [-MAX_TANK_MAG, MAX_TANK_MAG]
     tank_linear *= MAX_TANK_MAG;
     tank_angular *= MAX_TANK_MAG;
 
     // Serial.printf("calc: %.2f %.2f\n",tank_linear, tank_angular);
+
+    //
+    MeltInput *melt_input = melt.get_input();
+
+    melt_input->rpm = curr_rpm;
+    melt_input->drive_type = DriveType::Melting;
+
+    // all at zero for now
+    melt_input->vx = 0;
+    melt_input->vy = 0;
+    melt_input->turn_control = 0;
+    melt.general_update();
+
   } else {
-    // not connected, power down
-    // TODO: have separate powerdown state instead of using power directly
-    Serial.println("NOT CONNECTED!");
+    if (connected == ConnectionState::NetworkDisconnect) {
+      Serial.println("no controller thingy");
+      leds.leds_on_no_controller();
+    } else if (connected == ConnectionState::ControllerDisconnect) {
+      leds.leds_on_controller_stale();
+    } else if (connected == ConnectionState::AccelDisconnect) {
+      leds.leds_on_rgb(0, 255, 0);
+    }
+
+    // regardless, don't move at all
     tank_angular = 0;
     tank_linear = 0;
   }
 
-  if (comms.connected()) {
-    if (throttle_packet->connected)
-      leds.set_brightness((throttle_packet->left_ud * 20) / 1000);
+  static uint32_t lastMessage = 0;
+  int printing_time = 20;
 
+  if (comms.connected()) {
     if (uint32_t(millis() - lastMessage) >= printing_time) {
       // Serial.printf("l_lr=%d,l_ud=%d,r_lr=%d,r_ud=%d,kl=%d,kr=%d,c=%d\n",
       //               throttle_packet->left_lr, throttle_packet->left_ud,
       //               throttle_packet->right_lr, throttle_packet->right_ud,
       //               throttle_packet->knob_left, throttle_packet->knob_right,
       //               throttle_packet->connected);
-    Serial.printf("x:%1.3f,y:%.3f,z:%.3f\n", x, y, z);
-    // Serial.printf("x:%d,y:%d,z:%d\n", raw_x, raw_y, raw_z);
+      Serial.printf("x:%1.3f,y:%.3f,z:%.3f\n", x, y, z);
+      // Serial.printf("x:%d,y:%d,z:%d\n", raw_x, raw_y, raw_z);
 
       lastMessage = millis();
       //  Serial.printf("packet: %d\n",throttle_packet->throttle);
@@ -164,27 +192,48 @@ void Robot::motor_update() {
     Serial.println("arming");
     left_motor.send(command);
     right_motor.send(command);
-  } else {
-    const float MAX_TANK_MAG = 0.2;
+  } else if (connected == ConnectionState::Ready) {
+    melt.fast_update();
+    const MeltOutput *output = melt.get_output();
 
-    // float left_power = tank_linear - tank_angular;
-    // float right_power = tank_linear + tank_angular;
-    // float max_mag = max(left_power, right_power);
+    // only use led output for now
+    if (output->led_on) {
+      // Serial.println("motor led on");
+      leds.leds_on_rgb(0, 0, 255);
+    } else {
+      // Serial.println("motor led off");
+      leds.leds_off();
+    }
 
-    // // saturation compensation
-    // if (max_mag > 1) {
-    //   left_power /= max_mag;
-    //   right_power /= max_mag;
-    // }
-
-    // // cap by max mag
-    // left_power *= MAX_TANK_MAG;
-    // right_power *= MAX_TANK_MAG;
-    // Serial.printf("moving with speeds: %.2f %.2f\n",left_power,right_power);
-
-    // only act on positive
+    // don't use these values for now, keeping manual throttle for now
+    // left_motor.sendThrottle(max(output->left_power, 0.0f));
+    // right_motor.sendThrottle(max(output->right_power, 0.0f));
     left_motor.sendThrottle(max(tank_linear, 0.0f));
     right_motor.sendThrottle(max(tank_linear, 0.0f));
+
+    // const float MAX_TANK_MAG = 0.2;
+    //
+    // // float left_power = tank_linear - tank_angular;
+    // // float right_power = tank_linear + tank_angular;
+    // // float max_mag = max(left_power, right_power);
+    //
+    // // // saturation compensation
+    // // if (max_mag > 1) {
+    // //   left_power /= max_mag;
+    // //   right_power /= max_mag;
+    // // }
+    //
+    // // // cap by max mag
+    // // left_power *= MAX_TANK_MAG;
+    // // right_power *= MAX_TANK_MAG;
+    // // Serial.printf("moving with speeds: %.2f
+    // // %.2f\n",left_power,right_power);
+    //
+    // // only act on positive
+  }else{
+    // stop the motors unless strictly good for spinning
+    left_motor.send(0);
+    right_motor.send(0);
   }
 
   // perform every msec

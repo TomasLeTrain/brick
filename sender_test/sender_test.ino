@@ -80,6 +80,12 @@ void loop() {
   packet.knob_left = IBus.readChannel(4) - 1000;
   packet.knob_right = IBus.readChannel(5) - 1000;
 
+  // TODO: figure out their values
+  // packet.swa = IBus.readChannel(4) - 1000;
+  // packet.swb = IBus.readChannel(5) - 1000;
+  // packet.swc = IBus.readChannel(4) - 1000;
+  // packet.swd = IBus.readChannel(5) - 1000;
+
   // assume connected, updated later
   packet.connected = true;
 

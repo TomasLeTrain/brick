@@ -3,7 +3,7 @@
 #include <cstdint>
 
 enum TranslationMethod { Square, Sine, Linear };
-enum DriveType { Melt, Tank };
+enum DriveType { Melting, Tank };
 
 // TODO: add mutex?
 
@@ -44,10 +44,12 @@ struct MeltConfig {
 };
 
 class Melt {
+public:
   // updates fast loop params for how to move motors
   void fast_update();
 
-  const MeltInput *get_input() { return &input; }
+  MeltConfig *get_config() { return &config; }
+  MeltInput *get_input() { return &input; }
   const MeltOutput *get_output() { return &output; }
 
   // recalculates all values dependent on input
