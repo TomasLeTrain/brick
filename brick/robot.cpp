@@ -86,9 +86,6 @@ void Robot::general_update() {
   uint16_t raw_y = accel.get_raw_y_accel();
   uint16_t raw_z = accel.get_raw_z_accel();
 
-  rpm_estimator.update(x, y);
-  float curr_rpm = rpm_estimator.get_estimated_rpm();
-
   ThrottlePacket *throttle_packet = comms.get_throttle_packet();
 
   // TODO: deadzones!
@@ -107,6 +104,27 @@ void Robot::general_update() {
 
   if (connected == ConnectionState::Ready) {
     // leds.set_brightness((throttle_packet->left_ud * 20) / 1000);
+
+    // [-0.5,0.5]
+    float radius_changer = (throttle_packet->knob_left / 1000.0) - 0.5;
+    // [-1.5,1.5]
+    radius_changer *= 3;
+
+    rpm_estimator.set_radius(ACCELEROMETER_HARDWARE_RADIUS_CM + radius_changer);
+  }
+
+  rpm_estimator.update(x, y);
+  float curr_rpm = rpm_estimator.get_estimated_rpm();
+
+  if (connected == ConnectionState::Ready) {
+    // leds.set_brightness((throttle_packet->left_ud * 20) / 1000);
+
+    // [-0.5,0.5]
+    float radius_changer = (throttle_packet->knob_left / 1000.0) - 0.5;
+    // [-1.5,1.5]
+    radius_changer *= 3;
+
+    rpm_estimator.set_radius(ACCELEROMETER_HARDWARE_RADIUS_CM + radius_changer);
 
     // in range of [-0.5,0.5]
     tank_linear = (throttle_packet->right_ud / 1000.0) - 0.5;
@@ -230,7 +248,7 @@ void Robot::motor_update() {
     // // %.2f\n",left_power,right_power);
     //
     // // only act on positive
-  }else{
+  } else {
     // stop the motors unless strictly good for spinning
     left_motor.send(0);
     right_motor.send(0);

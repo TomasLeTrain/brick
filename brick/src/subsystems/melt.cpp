@@ -47,9 +47,6 @@ void Melt::general_update() {
   // center leds around offset
   led_start_timestamp = led_offset_micros - half_led_width_micros;
   led_end_timestamp = led_offset_micros + half_led_width_micros;
-
-  Serial.printf("s:%d %d %d %d\n", micros(), rotation_time_micros,
-                led_start_timestamp, led_end_timestamp);
 }
 
 // updates fast loop params for how to move motors
@@ -77,6 +74,7 @@ void Melt::fast_update_melt() {
 
   const float turn_melt_multiplier = 1;
   // TODO: figure out magnitudes and directions
+  // TODO: this amount should be figured out on general update
   // increasing rotation_pct_us moves the controlled heading in direction of
   // rotation. decreasing has opposite effect
   rotation_pct_us += input.turn_control * turn_melt_multiplier;
@@ -134,9 +132,6 @@ void Melt::fast_update_melt() {
   output.right_power = right_throttle;
 
   bool leds_on = false;
-
-  Serial.printf("b:%d %d %d %d %d\n", micros(), rotation_pct_us,
-                rotation_time_micros, led_start_timestamp, led_end_timestamp);
 
   // displays heading LED at correct location
   if (led_start_timestamp > led_end_timestamp) {
