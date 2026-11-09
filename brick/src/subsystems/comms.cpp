@@ -36,8 +36,7 @@ bool Comms::send(TelemetryPacket *packet) {
 }
 
 bool Comms::begin() {
-  peer_link = new NowPair(NowPair::Role::Slave, 6, NETWORK_ID, HEARTBEAT_MS,
-                          TIMEOUT_MS);
+  peer_link = new NowPair(NowPair::Role::Slave, 6, HEARTBEAT_MS, TIMEOUT_MS);
 
   peer_link->onData(dataCb, this);
 
@@ -88,5 +87,5 @@ void Comms::dump_rssi() {
 }
 
 void Comms::print_dump() {
-	// TODO:
+  // TODO:
 }

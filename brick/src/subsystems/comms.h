@@ -23,6 +23,7 @@ public:
   NowPair *get_link() { return peer_link; }
 
   void dump_rssi();
+  void print_dump();
 
 private:
   static void dataCb(const uint8_t *data, size_t length, int rssiDbm,

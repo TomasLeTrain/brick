@@ -11,11 +11,11 @@ NowPair::Broadcaster::Broadcaster(NowPair &owner, uint8_t channel)
     : ESP_NOW_Peer(BROADCAST_MAC, channel, WIFI_IF_STA, nullptr),
       _owner(owner) {}
 
-NowPair::NowPair(Role role, uint8_t channel, uint32_t networkId,
-                 uint32_t heartbeatMs, uint32_t timeoutMs)
+NowPair::NowPair(Role role, uint8_t channel, uint32_t heartbeatMs,
+                 uint32_t timeoutMs)
     : ESP_NOW_Peer(EMPTY_MAC, channel, WIFI_IF_STA, nullptr), _role(role),
-      _channel(channel), _network(networkId), _heartbeatMs(heartbeatMs),
-      _timeoutMs(timeoutMs), _broadcaster(*this, channel) {}
+      _channel(channel), _heartbeatMs(heartbeatMs), _timeoutMs(timeoutMs),
+      _broadcaster(*this, channel) {}
 
 bool NowPair::begin() {
   if (_started)
@@ -37,7 +37,9 @@ bool NowPair::begin() {
     _rx = _controlTx = _dataTx = nullptr;
     return false;
   }
+
   _receiver.store(this);
+
   // Install the metadata-aware receiver after ESP_NOW.begin() sets up its
   // callbacks. ESP_NOW_Peer still handles peer registration and transmission.
   if (!WiFi.mode(WIFI_STA) ||
@@ -53,9 +55,6 @@ bool NowPair::begin() {
     _rx = _controlTx = _dataTx = nullptr;
     return false;
   }
-  do {
-    _session = esp_random();
-  } while (_session == 0);
   _sequence = esp_random();
   _lastProbe = millis() - _heartbeatMs;
   _lastDiscovery = millis() - _heartbeatMs;
@@ -65,7 +64,7 @@ bool NowPair::begin() {
 
 void NowPair::receivePacket(const esp_now_recv_info_t *info,
                             const uint8_t *data, int length) {
-  auto *self = _receiver.load();
+  NowPair *self = _receiver.load();
   if (!self || !info || !info->src_addr || !info->des_addr || length < 0)
     return;
   const int rssiDbm = info->rx_ctrl ? info->rx_ctrl->rssi : RSSI_UNAVAILABLE;
@@ -82,21 +81,19 @@ void NowPair::enqueueRx(const uint8_t *mac, const uint8_t *data, size_t length,
                         bool broadcast, int rssiDbm, int rssiTimestamp) {
   if (!_rx || !data || length < HEADER_SIZE || length > sizeof(Frame))
     return;
+
   RxEvent event{};
   memcpy(&event.frame, data, length);
   const Frame &f = event.frame;
-  if (f.magic != MAGIC || f.network != _network || !f.sender ||
-      f.length > MAX_PAYLOAD || length != HEADER_SIZE + f.length)
+  if (f.length > MAX_PAYLOAD || length != HEADER_SIZE + f.length)
     return;
-  if (f.kind < Kind::Discover || f.kind > Kind::Data)
-    return;
-  if (f.kind != Kind::Data && f.length != 0)
-    return;
+
   memcpy(event.mac, mac, 6);
   event.broadcast = broadcast;
   event.receivedAt = millis();
   event.rssiDbm = rssiDbm;
   event.rssiTimestamp = rssiTimestamp;
+
   if (xQueueSend(_rx, &event, 0) != pdTRUE)
     _droppedRx.fetch_add(1);
 }
@@ -127,10 +124,7 @@ void NowPair::setConnected(bool value) {
     _connectionCallback(value, _connectionArg);
 }
 
-void NowPair::adoptSession(uint32_t session) {
-  if (_remoteSession == session)
-    return;
-  _remoteSession = session;
+void NowPair::newSession() {
   _probePending = false;
   xQueueReset(_controlTx);
   xQueueReset(_dataTx);
@@ -138,19 +132,22 @@ void NowPair::adoptSession(uint32_t session) {
   setConnected(false);
 }
 
-NowPair::Frame NowPair::makeFrame(Kind kind, uint32_t sequence) const {
+NowPair::Frame NowPair::makeFrame(Kind kind) const {
   Frame f{};
-  f.magic = MAGIC;
-  f.network = _network;
-  f.sender = _session;
-  f.target = kind == Kind::Discover ? 0 : _remoteSession;
-  f.sequence = sequence;
   f.kind = kind;
   return f;
 }
 
-bool NowPair::queueControl(Kind kind, uint32_t sequence) {
-  const Frame f = makeFrame(kind, sequence);
+bool NowPair::queueControl(Kind kind) {
+  const Frame f = makeFrame(kind);
+  return xQueueSend(_controlTx, &f, 0) == pdTRUE;
+}
+
+bool NowPair::queueControlSequence(Kind kind, uint32_t sequence = 0) {
+  Frame f = makeFrame(kind);
+  SequenceData *data = reinterpret_cast<SequenceData *>(&f.payload);
+  data.sequence = sequence;
+
   return xQueueSend(_controlTx, &f, 0) == pdTRUE;
 }
 
@@ -160,15 +157,18 @@ void NowPair::handle(const RxEvent &event) {
     return;
   const Frame &f = event.frame;
   if (f.kind == Kind::Discover) {
-    if (_role != Role::Slave || !event.broadcast || f.target != 0)
+    // only acknolwedge discovery if slave
+    if (_role != Role::Slave || !event.broadcast)
       return;
     if (!bind(event.mac))
       return;
-    adoptSession(f.sender);
+    newSession();
     return;
   }
-  if (event.broadcast || f.target != _session)
+
+  if (event.broadcast)
     return;
+
   if (!_bound) {
     // Only the master may learn an unknown slave from its first unicast probe.
     if (_role != Role::Master || f.kind != Kind::Probe || !bind(event.mac))
@@ -177,16 +177,16 @@ void NowPair::handle(const RxEvent &event) {
   if (memcmp(addr(), event.mac, 6) != 0)
     return;
   if (f.kind == Kind::Probe && _role == Role::Master)
-    adoptSession(f.sender);
-  if (f.sender != _remoteSession)
-    return;
+    newSession();
 
   switch (f.kind) {
   case Kind::Probe:
-    queueControl(Kind::Reply, f.sequence);
+    SequenceData *data = reinterpret_cast<const SequenceData *>(&f.payload);
+    queueControlSequence(Kind::Reply, data.sequence);
     break;
   case Kind::Reply:
-    if (_probePending && f.sequence == _pendingSequence) {
+    SequenceData *data = reinterpret_cast<const SequenceData *>(&f.payload);
+    if (_probePending && data.sequence == _pendingSequence) {
       _probePending = false;
       _lastReply = event.receivedAt;
       setConnected(true);
@@ -216,12 +216,15 @@ void NowPair::serviceTx() {
   if (_txBusy.load())
     return;
   Frame f;
+  // no packets to service
   if (xQueueReceive(_controlTx, &f, 0) != pdTRUE &&
       xQueueReceive(_dataTx, &f, 0) != pdTRUE)
     return;
+
   const bool broadcast = f.kind == Kind::Discover;
+
   // Discard work from an old peer boot/session or a now-disconnected app.
-  if (!broadcast && (!_bound || f.target != _remoteSession))
+  if (!broadcast && !_bound)
     return;
   if (f.kind == Kind::Data && !_connected)
     return;
@@ -243,32 +246,37 @@ void NowPair::serviceTx() {
 void NowPair::update() {
   if (!_started)
     return;
-  // Bound work per iteration even if packets keep arriving.
+
+  // handle all received rx events
   RxEvent event;
-  for (unsigned i = 0; i < 12 && xQueueReceive(_rx, &event, 0) == pdTRUE; ++i) {
+  while (xQueueReceive(_rx, &event, 0) != pdTRUE)
     handle(event);
-  }
+
   const uint32_t now = millis();
+
+  // timed out, start new session
+  // TODO: is it necesary to reject old data?
   if (_connected && uint32_t(now - _lastReply) >= _timeoutMs) {
-    _probePending = false;
-    xQueueReset(_controlTx);
-    xQueueReset(_dataTx);
-    _lastProbe = now - _heartbeatMs;
-    setConnected(false);
+    newSession();
   }
+
+  // send discover packet if master and has no connect
   if (_role == Role::Master && !_connected &&
       uint32_t(now - _lastDiscovery) >= _heartbeatMs) {
     if (queueControl(Kind::Discover))
       _lastDiscovery = now;
   }
-  if (_bound && _remoteSession && uint32_t(now - _lastProbe) >= _heartbeatMs) {
-    // Retries use the same outstanding challenge until it is acknowledged.
+
+  // send out heartbeat
+  if (_bound && uint32_t(now - _lastProbe) >= _heartbeatMs) {
+    // sequence stays the same until acknowledged
     if (!_probePending)
       _pendingSequence = ++_sequence;
-    if (queueControl(Kind::Probe, _pendingSequence)) {
+    if (queueControlSequence(Kind::Probe, _pendingSequence)) {
       _probePending = true;
       _lastProbe = now;
     }
   }
+
   serviceTx();
 }
