@@ -27,13 +27,6 @@ void Melt::general_update() {
   // current_theta_multiplier * rotation_pct_us = theta
   current_theta_multiplier = (2 * M_PI) / rotation_time_micros;
 
-  // TODO: move to config
-  const float melt_deadzone = 0;
-  const float tank_deadzone = 0;
-  const float tank_linear_max_mag = 0.1;
-  const float tank_angular_max_mag = 0.1;
-  const float tank_max_motor_mag = 0.2;
-
   // apply drive specific configs
   if (input.drive_type == DriveType::Melting) {
     // makes ||v|| <= 1
@@ -43,67 +36,68 @@ void Melt::general_update() {
     // guaranteed to be 0 <= mag <= 1
     float mag = sqrt(vx * vx + vy * vy);
 
-    if (mag < melt_deadzone) {
+    if (mag < config.melt_deadzone) {
       mag = 0;
-      melt_linear_mag = mag;
     }
 
+    melt_linear_mag = mag;
   } else if (input.drive_type == DriveType::Tank) {
     // deadzones
     float linear = input.vx;
     float angular = input.turn_control;
 
-    if (std::abs(linear) < tank_deadzone)
+    if (fabsf(linear) < config.tank_deadzone)
       linear = 0;
-    if (std::abs(angular) < tank_deadzone)
+    if (fabsf(angular) < config.tank_deadzone)
       angular = 0;
 
-    linear *= tank_linear_max_mag;
-    angular *= tank_angular_max_mag;
+    linear *= config.tank_linear_max_mag;
+    angular *= config.tank_angular_max_mag;
 
     // assumes both go forwards on positive
-    tank_left_power = input.vx - input.turn_control;
-    tank_right_power = input.vx + input.turn_control;
+    tank_left_power = linear - angular;
+    tank_right_power = linear + angular;
 
     // desaturate
     float max_mag = std::max(tank_left_power, tank_right_power);
-    if (max_mag > tank_max_motor_mag) {
-      float multiplier = tank_max_motor_mag / max_mag;
+    if (max_mag > config.tank_max_motor_mag) {
+      float multiplier = config.tank_max_motor_mag / max_mag;
       tank_left_power *= multiplier;
       tank_right_power *= multiplier;
     }
   }
 
-  // TODO: calc the following:
-  // // TODO: calcualted by PID
-  base_spin_power = 0;
+  throtte_pid.setTargetRPM(input.target_rpm_control * config.max_target_rpm);
+  base_spin_power = throtte_pid.update(input.rpm);
+
+  float turn_control = input.turn_control;
+
+  // turn control deadzone
+  if (fabsf(turn_control) < config.melt_turn_control_deadzone) {
+    turn_control = 0;
+  }
 
   // TODO: figure out sign
   // negative increases time of rotation (turns in direction opposite of
   // movement), positive decreases time of rotation (turns in direction of
   // movement)
   // TODO: flipping also flips direction of turning?
-  int32_t turn_factor_us =
-      rotation_time_micros * input.turn_control * config.turn_magnitude_pct;
-
-  // TODO: get from config.h or make configurable at runtime
-  float heading_led_width = 0.5;
+  turn_factor_us =
+      rotation_time_micros * turn_control * config.turn_magnitude_pct;
 
   const int32_t half_led_heading_width_us =
-      (rotation_time_micros * heading_led_width) / 2;
+      (rotation_time_micros * config.heading_led_width) / 2;
 
   // center around 0
   // led_start_timestamp wraps around since subtracting
   led_heading_start_us = rotation_time_micros - half_led_heading_width_us;
   led_heading_end_us = half_led_heading_width_us;
 
-  // TODO: get from config.h or make configurable at runtime
-  float vector_led_width = 0.1f;
   float target_theta_pct = target_theta / (2.f * M_PI);
   float vector_led_offset_us = rotation_time_micros * target_theta_pct;
 
   const int32_t half_led_vector_width_us =
-      (rotation_time_micros * vector_led_width) / 2;
+      (rotation_time_micros * config.vector_led_width) / 2;
 
   // center around the location of the vector
   // led_start_timestamp wraps around since subtracting
@@ -178,8 +172,11 @@ void Melt::fast_update_melt() {
     linear_power = factor * config.max_translation_power;
   }
 
+  linear_power *= melt_linear_mag;
+
   // TODO: ccw setup?
   // assumes both + means bot goes forwards
+
   left_throttle -= linear_power;
   right_throttle += linear_power;
 

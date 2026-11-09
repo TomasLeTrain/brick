@@ -53,10 +53,9 @@ void Robot::begin() {
   comms.begin();
   Serial.println("init comms");
 
-  MeltConfig *config = melt.get_config();
-
-  config->max_translation_power = 0.1;
-  config->translation_method = TranslationMethod::Linear;
+  PID *pid = melt.get_throtte_pid();
+  pid->setKp(1);
+  pid->setKi(0.1);
 }
 
 // blocking
@@ -136,9 +135,17 @@ void Robot::general_update() {
 
     rpm_estimator.set_radius(ACCELEROMETER_HARDWARE_RADIUS_CM + radius_changer);
 
+    // all in range [-0.5, 0.5]
     float vx = (throttle_packet->right_ud / 1000.0) - 0.5;
     float vy = (throttle_packet->right_lr / 1000.0) - 0.5;
+    float turn_control = (throttle_packet->left_lr / 1000.0) - 0.5;
+    float target_rpm_control = (throttle_packet->left_ud / 1000.0) - 0.5;
 
+    // convert to range [-0.5, 0.5]
+    vx *= 2.0;
+    vy *= 2.0;
+    turn_control *= 2.0;
+    target_rpm_control *= 2.0;
 
     // in range of [-0.5,0.5]
     tank_linear = (throttle_packet->right_ud / 1000.0) - 0.5;
@@ -161,10 +168,14 @@ void Robot::general_update() {
 
     // all at zero for now
     melt_input->vx = vx;
+    // melt_input->vy = vy;
+    // melt_input->turn_control = turn_control;
+    // melt_input->target_rpm_control = target_rpm_control;
     melt_input->vy = 0;
     melt_input->turn_control = 0;
-    melt.general_update();
+    melt_input->target_rpm_control = 0;
 
+    melt.general_update();
   } else {
     if (connected == ConnectionState::NetworkDisconnect) {
       Serial.println("no controller thingy");
