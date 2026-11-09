@@ -27,9 +27,12 @@ public:
 
 private:
   static void dataCb(const uint8_t *data, size_t length, int rssiDbm,
-                     int rssiTimestamp, void *arg);
+                     uint32_t rssiTimestamp, void *arg);
+  static void rssiCb(int rssiDbm, uint32_t rssiTimestamp, void *arg);
+
   void on_data(const uint8_t *data, size_t length, int rssiDbm,
                int rssiTimestamp);
+  void on_rssi(int rssiDbm, int rssiTimestamp);
   void end();
 
   void new_rssi_entry(int rssiDbm, int rssiTimestamp);

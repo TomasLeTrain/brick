@@ -10,7 +10,7 @@ void Comms::end() {
 }
 
 void Comms::dataCb(const uint8_t *data, size_t length, int rssiDbm,
-                   int rssiTimestamp, void *arg) {
+                   uint32_t rssiTimestamp, void *arg) {
   if (data == nullptr || length < 0)
     return;
 
@@ -19,11 +19,21 @@ void Comms::dataCb(const uint8_t *data, size_t length, int rssiDbm,
   self->on_data(data, length, rssiDbm, rssiTimestamp);
 }
 
+void Comms::rssiCb(int rssiDbm, uint32_t rssiTimestamp, void *arg) {
+  auto *self = static_cast<Comms *>(arg);
+
+  self->on_rssi(rssiDbm, rssiTimestamp);
+}
+
 void Comms::on_data(const uint8_t *data, size_t length, int rssiDbm,
                     int rssiTimestamp) {
   // TODO: should definetely do something with res
   // maybe increase packet loss, or have callback for on bad packet?
   bool res = current_throttle.deserialize(data, length);
+  new_rssi_entry(rssiDbm, rssiTimestamp);
+}
+
+void Comms::on_rssi(int rssiDbm, int rssiTimestamp) {
   new_rssi_entry(rssiDbm, rssiTimestamp);
 }
 
@@ -39,6 +49,7 @@ bool Comms::begin() {
   peer_link = new NowPair(NowPair::Role::Slave, 6, HEARTBEAT_MS, TIMEOUT_MS);
 
   peer_link->onData(dataCb, this);
+  peer_link->onRssi(rssiCb, this);
 
   if (!peer_link->begin()) {
     end();
