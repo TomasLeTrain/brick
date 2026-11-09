@@ -72,11 +72,14 @@ void Robot::arming_sequence() {
   arming = false;
 }
 
+bool last_switch_position = true;
+
 void Robot::general_update() {
   comms.update();
   // TODO: can read from accel at faster rate, can also only read x/y and read z
   // less often
   accel.update_reading();
+  int32_t accel_measurement_micros = micros();
   accel_disconnected = accel.has_connection_error();
 
   float x = accel.get_x_accel(false);
@@ -118,6 +121,11 @@ void Robot::general_update() {
 
   if (connected == ConnectionState::Ready) {
     // leds.set_brightness((throttle_packet->left_ud * 20) / 1000);
+
+    if(throttle_packet->swa != last_switch_position){
+      comms.dump_rssi();
+      last_switch_position = throttle_packet->swa;
+    }
 
     // [-0.5,0.5]
     float radius_changer = (throttle_packet->knob_left / 1000.0) - 0.5;
@@ -198,6 +206,7 @@ void Robot::general_update() {
   telemetry_packet.a_y = raw_y;
   telemetry_packet.a_z = raw_z;
   telemetry_packet.rpm = rpm_estimator.get_estimated_rpm();
+  telemetry_packet.micros_timestamp = accel_measurement_micros;
 
   comms.send(&telemetry_packet);
 

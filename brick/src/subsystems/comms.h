@@ -7,6 +7,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#define RSSI_QUEUE_SIZE 2000
+
 class Comms {
 public:
   Comms();
@@ -18,15 +20,28 @@ public:
   bool connected();
 
   ThrottlePacket *get_throttle_packet() { return &current_throttle; }
-  NowPair* get_link() { return peer_link; }
+  NowPair *get_link() { return peer_link; }
+
+  void dump_rssi();
 
 private:
-  static void dataCb(const uint8_t *data, size_t length, void *arg);
-  void on_data(const uint8_t *data, size_t length);
+  static void dataCb(const uint8_t *data, size_t length, int rssiDbm,
+                     int rssiTimestamp, void *arg);
+  void on_data(const uint8_t *data, size_t length, int rssiDbm,
+               int rssiTimestamp);
   void end();
+
+  void new_rssi_entry(int rssiDbm, int rssiTimestamp);
 
   bool peerConnected = false;
   NowPair *peer_link = nullptr;
 
   ThrottlePacket current_throttle;
+
+  int rssi[RSSI_QUEUE_SIZE];
+  int rssi_timestamps[RSSI_QUEUE_SIZE];
+  int rssi_idx = 0;
+  int rssi_capacity = 0;
+
+  bool dumping_rssi = false;
 };

@@ -3,19 +3,24 @@
 #include <Arduino.h>
 #include <ESP32_NOW.h>
 #include <atomic>
+#include <climits>
 #include <cstring>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
 // One global/static instance per ESP32. All public methods and application
-// callbacks run on the Arduino loop task. This class owns ESP_NOW.onNewPeer.
+// callbacks run on the Arduino loop task. This class owns the ESP-NOW RX
+// callback.
 class NowPair : public ESP_NOW_Peer {
 public:
   enum class Role : uint8_t { Master, Slave };
   static constexpr size_t MAX_PAYLOAD = 228;
+  static constexpr int RSSI_UNAVAILABLE = INT_MIN;
   // using ConnectionCallback = void (*)(bool connected);
   using ConnectionCallback = void (*)(bool connected, void *arg);
-  using DataCallback = void (*)(const uint8_t *data, size_t length, void *arg);
+  // RSSI is measured on the receiving board, in dBm, for this packet.
+  using DataCallback = void (*)(const uint8_t *data, size_t length, int rssiDbm,
+                                int rssiTimestamp, void *arg);
 
   explicit NowPair(Role role, uint8_t channel = 6,
                    uint32_t networkId = 0x12345678, uint32_t heartbeatMs = 500,
@@ -66,6 +71,8 @@ private:
     uint8_t mac[6];
     bool broadcast;
     uint32_t receivedAt;
+    int rssiDbm;
+    int rssiTimestamp;
     Frame frame;
   };
   class Broadcaster : public ESP_NOW_Peer {
@@ -75,19 +82,17 @@ private:
     size_t transmit(const uint8_t *data, int length) {
       return send(data, length);
     }
-    void onReceive(const uint8_t *, size_t, bool) override {}
     void onSent(bool success) override { _owner.onSent(success); }
 
   private:
     NowPair &_owner;
   };
 
-  void onReceive(const uint8_t *data, size_t length, bool broadcast) override;
   void onSent(bool success) override;
-  static void newPeer(const esp_now_recv_info_t *info, const uint8_t *data,
-                      int length, void *arg);
+  static void receivePacket(const esp_now_recv_info_t *info,
+                            const uint8_t *data, int length);
   void enqueueRx(const uint8_t *mac, const uint8_t *data, size_t length,
-                 bool broadcast);
+                 bool broadcast, int rssiDbm, int rssiTimestamp);
   bool bind(const uint8_t *mac);
   void handle(const RxEvent &event);
   void setConnected(bool value);
@@ -96,6 +101,7 @@ private:
   bool queueControl(Kind kind, uint32_t sequence = 0);
   void serviceTx();
 
+  static std::atomic<NowPair *> _receiver;
   static const uint8_t EMPTY_MAC[6];
   static const uint8_t BROADCAST_MAC[6];
   static constexpr uint32_t MAGIC = 0x4E505231; // "NPR1"

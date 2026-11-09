@@ -9,23 +9,29 @@ void Comms::end() {
   }
 }
 
-void Comms::dataCb(const uint8_t *data, size_t length, void *arg) {
+void Comms::dataCb(const uint8_t *data, size_t length, int rssiDbm,
+                   int rssiTimestamp, void *arg) {
   if (data == nullptr || length < 0)
     return;
+
   auto *self = static_cast<Comms *>(arg);
-  self->on_data(data, length);
+
+  self->on_data(data, length, rssiDbm, rssiTimestamp);
 }
 
-void Comms::on_data(const uint8_t *data, size_t length) {
+void Comms::on_data(const uint8_t *data, size_t length, int rssiDbm,
+                    int rssiTimestamp) {
   // TODO: should definetely do something with res
   // maybe increase packet loss, or have callback for on bad packet?
   bool res = current_throttle.deserialize(data, length);
+  new_rssi_entry(rssiDbm, rssiTimestamp);
 }
 
 bool Comms::send(TelemetryPacket *packet) {
   // max packet is 228, anything getting serialized should fit below that
   static uint8_t data_buffer[228];
   size_t n = packet->serialize(data_buffer);
+
   return peer_link->sendData(data_buffer, n);
 }
 
@@ -45,3 +51,32 @@ bool Comms::begin() {
 void Comms::update() { peer_link->update(); }
 
 bool Comms::connected() { return peer_link->connected(); }
+
+void Comms::new_rssi_entry(int rssiDbm, int rssiTimestamp) {
+  if (rssiDbm == NowPair::RSSI_UNAVAILABLE || dumping_rssi)
+    return;
+
+  rssi[rssi_idx] = rssiDbm;
+  rssi_timestamps[rssi_idx] = rssiTimestamp;
+
+  rssi_idx = (rssi_idx + 1) % RSSI_QUEUE_SIZE;
+  if (rssi_capacity < RSSI_QUEUE_SIZE)
+    rssi_capacity++;
+}
+
+void Comms::dump_rssi() {
+  dumping_rssi = true;
+
+  const uint32_t NVM_Offset = 0x9000;
+  uint32_t address = 0;
+
+  // fits inside 0x5000 size
+  ESP.flashWrite(NVM_Offset + address, (uint32_t *)rssi, sizeof(rssi));
+
+  address += sizeof(rssi);
+
+  ESP.flashWrite(NVM_Offset + address, (uint32_t *)rssi_timestamps,
+                 sizeof(rssi_timestamps));
+
+  dumping_rssi = false;
+}

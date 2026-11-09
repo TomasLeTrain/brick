@@ -58,8 +58,8 @@ void loop() {
   static uint8_t data_buffer[228];
   ThrottlePacket packet;
 
-  // slightly smaller than delay so gets executed every 20 ish msec
-  int time_between_packets = 19;
+  // transmit at 1khz
+  int time_between_packets = 0;
   digitalWrite(LED_BUILTIN, HIGH);
 
   peer_link.update();  // Must run frequently, including while disconnected.
@@ -81,8 +81,8 @@ void loop() {
   packet.knob_right = IBus.readChannel(5) - 1000;
 
   // TODO: figure out their values
-  // packet.swa = IBus.readChannel(4) - 1000;
-  // packet.swb = IBus.readChannel(5) - 1000;
+  packet.swa = (IBus.readChannel(6) - 1000) > 500;
+  packet.swb = (IBus.readChannel(7) - 1000) > 500;
   // packet.swc = IBus.readChannel(4) - 1000;
   // packet.swd = IBus.readChannel(5) - 1000;
 
@@ -131,17 +131,9 @@ void loop() {
 
   if (peer_link.connected() && uint32_t(millis() - lastMessage) >= time_between_packets) {
     size_t n = packet.serialize(data_buffer);
-    // Serial.printf("l_lr=%d,l_ud=%d,r_lr=%d,r_ud=%d,kl=%d,kr=%d,c=%d\n",
-    //               packet.left_lr,
-    //               packet.left_ud,
-    //               packet.right_lr,
-    //               packet.right_ud,
-    //               packet.knob_left,
-    //               packet.knob_right,
-    //               packet.connected);
     if (peer_link.sendData(data_buffer, n)) lastMessage = millis();
   } else {
   }
 
-  delay(5);
+  delay(1);
 }

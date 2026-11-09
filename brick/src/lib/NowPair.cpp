@@ -3,6 +3,7 @@
 #include <esp_system.h>
 #include <esp_wifi.h>
 
+std::atomic<NowPair *> NowPair::_receiver{nullptr};
 const uint8_t NowPair::EMPTY_MAC[6] = {};
 const uint8_t NowPair::BROADCAST_MAC[6] = {255, 255, 255, 255, 255, 255};
 
@@ -19,7 +20,7 @@ NowPair::NowPair(Role role, uint8_t channel, uint32_t networkId,
 bool NowPair::begin() {
   if (_started)
     return true;
-  if (_channel < 1 || _channel > 11 || _heartbeatMs < 20 ||
+  if (_receiver.load() || _channel < 1 || _channel > 11 || _heartbeatMs < 20 ||
       _timeoutMs <= _heartbeatMs || _timeoutMs >= 0x80000000UL)
     return false;
 
@@ -36,10 +37,15 @@ bool NowPair::begin() {
     _rx = _controlTx = _dataTx = nullptr;
     return false;
   }
+  _receiver.store(this);
+  // Install the metadata-aware receiver after ESP_NOW.begin() sets up its
+  // callbacks. ESP_NOW_Peer still handles peer registration and transmission.
   if (!WiFi.mode(WIFI_STA) ||
       (esp_wifi_set_channel(_channel, WIFI_SECOND_CHAN_NONE) != ESP_OK) ||
-      !WiFi.setSleep(false) || !ESP_NOW.begin() || !_broadcaster.start()) {
+      !WiFi.setSleep(false) || !ESP_NOW.begin() || !_broadcaster.start() ||
+      esp_now_register_recv_cb(receivePacket) != ESP_OK) {
     // This class exclusively owns ESP-NOW on this board.
+    _receiver.store(nullptr);
     ESP_NOW.end();
     vQueueDelete(_rx);
     vQueueDelete(_controlTx);
@@ -54,26 +60,26 @@ bool NowPair::begin() {
   _lastProbe = millis() - _heartbeatMs;
   _lastDiscovery = millis() - _heartbeatMs;
   _started = true;
-  ESP_NOW.onNewPeer(newPeer, this);
   return true;
 }
 
-void NowPair::newPeer(const esp_now_recv_info_t *info, const uint8_t *data,
-                      int length, void *arg) {
-  if (!info || length < 0)
+void NowPair::receivePacket(const esp_now_recv_info_t *info,
+                            const uint8_t *data, int length) {
+  auto *self = _receiver.load();
+  if (!self || !info || !info->src_addr || !info->des_addr || length < 0)
     return;
-  auto *self = static_cast<NowPair *>(arg);
-  self->enqueueRx(info->src_addr, data, static_cast<size_t>(length),
-                  memcmp(info->des_addr, BROADCAST_MAC, 6) == 0);
-}
+  const int rssiDbm = info->rx_ctrl ? info->rx_ctrl->rssi : RSSI_UNAVAILABLE;
+  const int rssiTimestamp =
+      info->rx_ctrl ? info->rx_ctrl->timestamp : RSSI_UNAVAILABLE;
 
-void NowPair::onReceive(const uint8_t *data, size_t length, bool broadcast) {
-  enqueueRx(addr(), data, length, broadcast);
+  self->enqueueRx(info->src_addr, data, static_cast<size_t>(length),
+                  memcmp(info->des_addr, BROADCAST_MAC, 6) == 0, rssiDbm,
+                  rssiTimestamp);
 }
 
 // Wi-Fi task: only copy bounded data into a FreeRTOS queue. No user callbacks.
 void NowPair::enqueueRx(const uint8_t *mac, const uint8_t *data, size_t length,
-                        bool broadcast) {
+                        bool broadcast, int rssiDbm, int rssiTimestamp) {
   if (!_rx || !data || length < HEADER_SIZE || length > sizeof(Frame))
     return;
   RxEvent event{};
@@ -89,6 +95,8 @@ void NowPair::enqueueRx(const uint8_t *mac, const uint8_t *data, size_t length,
   memcpy(event.mac, mac, 6);
   event.broadcast = broadcast;
   event.receivedAt = millis();
+  event.rssiDbm = rssiDbm;
+  event.rssiTimestamp = rssiTimestamp;
   if (xQueueSend(_rx, &event, 0) != pdTRUE)
     _droppedRx.fetch_add(1);
 }
@@ -186,7 +194,8 @@ void NowPair::handle(const RxEvent &event) {
     break;
   case Kind::Data:
     if (_connected && _dataCallback)
-      _dataCallback(f.payload, f.length, _dataArg);
+      _dataCallback(f.payload, f.length, event.rssiDbm, event.rssiTimestamp,
+                    _dataArg);
     break;
   default:
     break;
