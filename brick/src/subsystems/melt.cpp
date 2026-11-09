@@ -37,7 +37,7 @@ void Melt::general_update() {
   // TODO: better solution could be to figure out the delays to ensure this
   // solution is robust?
   // TODO: move base value to config/ make configurable at runtime?
-  float led_offset_pct = 0.5;
+  float led_offset_pct = 0.0;
 
   float led_width_micros = rotation_time_micros * config.led_width;
   float led_offset_micros = rotation_time_micros * led_offset_pct;
@@ -47,6 +47,12 @@ void Melt::general_update() {
   // center leds around offset
   led_start_timestamp = led_offset_micros - half_led_width_micros;
   led_end_timestamp = led_offset_micros + half_led_width_micros;
+
+  if (led_start_timestamp < 0)
+    led_start_timestamp += rotation_time_micros;
+
+  if (led_end_timestamp > rotation_time_micros)
+    led_end_timestamp -= rotation_time_micros;
 }
 
 // updates fast loop params for how to move motors
