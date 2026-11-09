@@ -19,7 +19,7 @@ public:
   using ConnectionCallback = void (*)(bool connected, void *arg);
   // RSSI is measured on the receiving board, in dBm, for this packet.
   using DataCallback = void (*)(const uint8_t *data, size_t length, int rssiDbm,
-                                int rssiTimestamp, void *arg);
+                                uint32_t rssiTimestamp, void *arg);
 
   explicit NowPair(Role role, uint8_t channel = 6, uint32_t heartbeatMs = 500,
                    uint32_t timeoutMs = 3000);
@@ -52,11 +52,6 @@ public:
 
 private:
   enum class Kind : uint8_t { Discover = 1, Probe, Reply, Data };
-
-  // used by probe/reply packets
-  struct __attribute__((packed)) SequenceData {
-    uint32_t sequence;
-  };
 
   struct __attribute__((packed)) Frame {
     Kind kind;
@@ -105,7 +100,7 @@ private:
   bool queueControl(Kind kind);
 
   // used for probe/reply packets
-  bool queueControlSequence(Kind kind, uint32_t sequence = 0);
+  bool queueControlSequence(Kind kind, uint32_t sequence);
 
   void serviceTx();
 

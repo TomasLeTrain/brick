@@ -44,9 +44,14 @@ struct MeltConfig {
 };
 
 class Melt {
+  using LedFunction = bool (*)(uint32_t rotation_pct,
+                               uint32_t rotation_total_micros);
+
 public:
   // updates fast loop params for how to move motors
   void fast_update();
+
+  void set_led_function(LedFunction fun) { led_function = fun; }
 
   MeltConfig *get_config() { return &config; }
   MeltInput *get_input() { return &input; }
@@ -66,7 +71,7 @@ private:
   MeltOutput output;
   MeltConfig config;
 
-  // below are values calculated by update rpm
+  // below are values calculated by generated update
   uint32_t rotation_start_timestamp = 0;
   uint32_t rotation_time_micros;
 
@@ -78,4 +83,5 @@ private:
 
   float target_theta;
   float current_theta_multiplier;
+  LedFunction led_function = nullptr;
 };

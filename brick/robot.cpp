@@ -5,6 +5,44 @@
 
 Robot::Robot() {}
 
+bool ledFunction(uint32_t rotation_pct_us, uint32_t rotation_time_micros) {
+  bool leds_on = false;
+  // TODO: can flash led also in direction of vector with different color
+
+  // TODO: get from config.h or make configurable at runtime
+  float led_width = 0.5;
+  float led_offset_pct = 0.0;
+
+  int32_t led_width_micros = rotation_time_micros * led_width;
+  int32_t led_offset_micros = rotation_time_micros * led_offset_pct;
+
+  int32_t half_led_width_micros = led_width_micros / 2;
+
+  // center leds around offset
+  int32_t led_start_timestamp = led_offset_micros - half_led_width_micros;
+  int32_t led_end_timestamp = led_offset_micros + half_led_width_micros;
+
+  if (led_start_timestamp < 0)
+    led_start_timestamp += rotation_time_micros;
+
+  if (led_end_timestamp > rotation_time_micros)
+    led_end_timestamp -= rotation_time_micros;
+
+  // TODO: abstract to arbitrary led function
+  //
+  // displays heading LED at correct location
+  if (led_start_timestamp > led_end_timestamp) {
+    // range crosses 0, checking if in range must be done with or
+    leds_on = rotation_pct_us >= led_start_timestamp ||
+              rotation_pct_us <= led_end_timestamp;
+  } else {
+    leds_on = rotation_pct_us >= led_start_timestamp &&
+              rotation_pct_us <= led_end_timestamp;
+  }
+
+  return leds_on;
+}
+
 void Robot::begin() {
   // TODO: check for any begin errors and report with leds
   leds.set_brightness(30);
@@ -56,6 +94,8 @@ void Robot::begin() {
   config->led_width = 0.5;
   config->max_translation_power = 0.1;
   config->translation_method = TranslationMethod::Linear;
+
+  melt.set_led_function(ledFunction);
 }
 
 // blocking
@@ -122,7 +162,7 @@ void Robot::general_update() {
   if (connected == ConnectionState::Ready) {
     // leds.set_brightness((throttle_packet->left_ud * 20) / 1000);
 
-    if(throttle_packet->swa != last_switch_position){
+    if (throttle_packet->swa != last_switch_position) {
       Serial.println("dumping");
       comms.dump_rssi();
       last_switch_position = throttle_packet->swa;

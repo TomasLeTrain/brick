@@ -28,31 +28,6 @@ void Melt::general_update() {
   // TODO: calc the following:
   // // TODO: calcualted by PID
   base_spin_power = 0;
-
-  // TODO: can flash led also in direction of vector?
-
-  // can account for all delays in the system that result in a skewed movement
-  // direction by simply changing the led offset to align with whichever
-  // direction the movement is actually going to
-  // TODO: better solution could be to figure out the delays to ensure this
-  // solution is robust?
-  // TODO: move base value to config/ make configurable at runtime?
-  float led_offset_pct = 0.0;
-
-  float led_width_micros = rotation_time_micros * config.led_width;
-  float led_offset_micros = rotation_time_micros * led_offset_pct;
-
-  float half_led_width_micros = (led_width_micros * 0.5);
-
-  // center leds around offset
-  led_start_timestamp = led_offset_micros - half_led_width_micros;
-  led_end_timestamp = led_offset_micros + half_led_width_micros;
-
-  if (led_start_timestamp < 0)
-    led_start_timestamp += rotation_time_micros;
-
-  if (led_end_timestamp > rotation_time_micros)
-    led_end_timestamp -= rotation_time_micros;
 }
 
 // updates fast loop params for how to move motors
@@ -137,22 +112,6 @@ void Melt::fast_update_melt() {
   output.left_power = left_throttle;
   output.right_power = right_throttle;
 
-  bool leds_on = false;
-
-  // displays heading LED at correct location
-  if (led_start_timestamp > led_end_timestamp) {
-    // range crosses 0, checking if in range must be done with or
-    leds_on = rotation_pct_us >= led_start_timestamp ||
-              rotation_pct_us <= led_end_timestamp;
-  } else {
-    leds_on = rotation_pct_us >= led_start_timestamp &&
-              rotation_pct_us <= led_end_timestamp;
-  }
-
-  // TODO: add more complex led behavior
-  if (leds_on) {
-    output.led_on = true;
-  } else {
-    output.led_on = false;
-  }
+  // TODO: make calculate color instead of only on/off
+  output.led_on = led_function(rotation_pct_us, rotation_time_micros);
 }

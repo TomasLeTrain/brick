@@ -143,11 +143,10 @@ bool NowPair::queueControl(Kind kind) {
   return xQueueSend(_controlTx, &f, 0) == pdTRUE;
 }
 
-bool NowPair::queueControlSequence(Kind kind, uint32_t sequence = 0) {
+bool NowPair::queueControlSequence(Kind kind, uint32_t sequence) {
   Frame f = makeFrame(kind);
-  SequenceData *data = reinterpret_cast<SequenceData *>(&f.payload);
-  data.sequence = sequence;
-
+  f.length = sizeof(sequence);
+  memcpy(f.payload, &sequence, sizeof(sequence));
   return xQueueSend(_controlTx, &f, 0) == pdTRUE;
 }
 
@@ -179,14 +178,16 @@ void NowPair::handle(const RxEvent &event) {
   if (f.kind == Kind::Probe && _role == Role::Master)
     newSession();
 
+  // NOTE: only valid for Probe/Reply packets!
+  const uint32_t *sequence_data =
+      reinterpret_cast<const uint32_t *>(&f.payload);
+
   switch (f.kind) {
   case Kind::Probe:
-    SequenceData *data = reinterpret_cast<const SequenceData *>(&f.payload);
-    queueControlSequence(Kind::Reply, data.sequence);
+    queueControlSequence(Kind::Reply, sequence_data->sequence);
     break;
   case Kind::Reply:
-    SequenceData *data = reinterpret_cast<const SequenceData *>(&f.payload);
-    if (_probePending && data.sequence == _pendingSequence) {
+    if (_probePending && sequence_data->sequence == _pendingSequence) {
       _probePending = false;
       _lastReply = event.receivedAt;
       setConnected(true);
@@ -249,7 +250,7 @@ void NowPair::update() {
 
   // handle all received rx events
   RxEvent event;
-  while (xQueueReceive(_rx, &event, 0) != pdTRUE)
+  while (xQueueReceive(_rx, &event, 0) == pdTRUE)
     handle(event);
 
   const uint32_t now = millis();
