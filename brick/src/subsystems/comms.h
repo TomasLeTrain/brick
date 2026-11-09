@@ -7,7 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#define RSSI_QUEUE_SIZE 2000
+#define RSSI_QUEUE_SIZE 1000
 
 class Comms {
 public:

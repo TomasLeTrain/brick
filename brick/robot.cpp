@@ -72,7 +72,7 @@ void Robot::arming_sequence() {
   arming = false;
 }
 
-bool last_switch_position = true;
+bool last_switch_position = false;
 
 void Robot::general_update() {
   comms.update();
@@ -123,6 +123,7 @@ void Robot::general_update() {
     // leds.set_brightness((throttle_packet->left_ud * 20) / 1000);
 
     if(throttle_packet->swa != last_switch_position){
+      Serial.println("dumping");
       comms.dump_rssi();
       last_switch_position = throttle_packet->swa;
     }

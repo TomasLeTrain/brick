@@ -16,7 +16,7 @@ void connectionChanged(bool connected, void *arg) {
   Serial.println(connected ? "Slave connected" : "Slave disconnected");
 }
 
-void received(const uint8_t *data, size_t length, void *arg) {
+void received(const uint8_t *data, size_t length,int rssiDbm, int rssiTimestamp, void *arg) {
   TelemetryPacket packet;
   bool res = packet.deserialize(data, length);
   if (res) {
@@ -59,7 +59,7 @@ void loop() {
   ThrottlePacket packet;
 
   // transmit at 1khz
-  int time_between_packets = 0;
+  int time_between_packets = 19;
   digitalWrite(LED_BUILTIN, HIGH);
 
   peer_link.update();  // Must run frequently, including while disconnected.
@@ -79,6 +79,8 @@ void loop() {
 
   packet.knob_left = IBus.readChannel(4) - 1000;
   packet.knob_right = IBus.readChannel(5) - 1000;
+
+  // Serial.printf("swa:%d,swb:%d,swc:%d,swd:%d\n",IBus.readChannel(6),IBus.readChannel(7),IBus.readChannel(8),IBus.readChannel(9));
 
   // TODO: figure out their values
   packet.swa = (IBus.readChannel(6) - 1000) > 500;
@@ -135,5 +137,5 @@ void loop() {
   } else {
   }
 
-  delay(1);
+  delay(10);
 }

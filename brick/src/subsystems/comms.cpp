@@ -53,15 +53,15 @@ void Comms::update() { peer_link->update(); }
 bool Comms::connected() { return peer_link->connected(); }
 
 void Comms::new_rssi_entry(int rssiDbm, int rssiTimestamp) {
-  if (rssiDbm == NowPair::RSSI_UNAVAILABLE || dumping_rssi)
-    return;
-
-  rssi[rssi_idx] = rssiDbm;
-  rssi_timestamps[rssi_idx] = rssiTimestamp;
-
-  rssi_idx = (rssi_idx + 1) % RSSI_QUEUE_SIZE;
-  if (rssi_capacity < RSSI_QUEUE_SIZE)
-    rssi_capacity++;
+  // if (rssiDbm == NowPair::RSSI_UNAVAILABLE || dumping_rssi)
+  //   return;
+  //
+  // rssi[rssi_idx] = rssiDbm;
+  // rssi_timestamps[rssi_idx] = rssiTimestamp;
+  //
+  // rssi_idx = (rssi_idx + 1) % RSSI_QUEUE_SIZE;
+  // if (rssi_capacity < RSSI_QUEUE_SIZE)
+  //   rssi_capacity++;
 }
 
 void Comms::dump_rssi() {
