@@ -1,5 +1,7 @@
 #include "melt.h"
+#include "led.h"
 #include <Arduino.h>
+#include <cmath>
 #include <math.h>
 
 // recalculates all values dependent on input
@@ -25,6 +27,53 @@ void Melt::general_update() {
   // current_theta_multiplier * rotation_pct_us = theta
   current_theta_multiplier = (2 * M_PI) / rotation_time_micros;
 
+  // TODO: move to config
+  const float melt_deadzone = 0;
+  const float tank_deadzone = 0;
+  const float tank_linear_max_mag = 0.1;
+  const float tank_angular_max_mag = 0.1;
+  const float tank_max_motor_mag = 0.2;
+
+  // apply drive specific configs
+  if (input.drive_type == DriveType::Melting) {
+    // makes ||v|| <= 1
+    float vx = input.vx / M_SQRT2;
+    float vy = input.vy / M_SQRT2;
+
+    // guaranteed to be 0 <= mag <= 1
+    float mag = sqrt(vx * vx + vy * vy);
+
+    if (mag < melt_deadzone) {
+      mag = 0;
+      melt_linear_mag = mag;
+    }
+
+  } else if (input.drive_type == DriveType::Tank) {
+    // deadzones
+    float linear = input.vx;
+    float angular = input.turn_control;
+
+    if (std::abs(linear) < tank_deadzone)
+      linear = 0;
+    if (std::abs(angular) < tank_deadzone)
+      angular = 0;
+
+    linear *= tank_linear_max_mag;
+    angular *= tank_angular_max_mag;
+
+    // assumes both go forwards on positive
+    tank_left_power = input.vx - input.turn_control;
+    tank_right_power = input.vx + input.turn_control;
+
+    // desaturate
+    float max_mag = std::max(tank_left_power, tank_right_power);
+    if (max_mag > tank_max_motor_mag) {
+      float multiplier = tank_max_motor_mag / max_mag;
+      tank_left_power *= multiplier;
+      tank_right_power *= multiplier;
+    }
+  }
+
   // TODO: calc the following:
   // // TODO: calcualted by PID
   base_spin_power = 0;
@@ -36,6 +85,30 @@ void Melt::general_update() {
   // TODO: flipping also flips direction of turning?
   int32_t turn_factor_us =
       rotation_time_micros * input.turn_control * config.turn_magnitude_pct;
+
+  // TODO: get from config.h or make configurable at runtime
+  float heading_led_width = 0.5;
+
+  const int32_t half_led_heading_width_us =
+      (rotation_time_micros * heading_led_width) / 2;
+
+  // center around 0
+  // led_start_timestamp wraps around since subtracting
+  led_heading_start_us = rotation_time_micros - half_led_heading_width_us;
+  led_heading_end_us = half_led_heading_width_us;
+
+  // TODO: get from config.h or make configurable at runtime
+  float vector_led_width = 0.1f;
+  float target_theta_pct = target_theta / (2.f * M_PI);
+  float vector_led_offset_us = rotation_time_micros * target_theta_pct;
+
+  const int32_t half_led_vector_width_us =
+      (rotation_time_micros * vector_led_width) / 2;
+
+  // center around the location of the vector
+  // led_start_timestamp wraps around since subtracting
+  led_vector_start_us = vector_led_offset_us - half_led_vector_width_us;
+  led_vector_end_us = vector_led_offset_us + half_led_heading_width_us;
 }
 
 // updates fast loop params for how to move motors
@@ -48,31 +121,10 @@ void Melt::fast_update() {
 }
 
 void Melt::fast_update_tank() {
-  // TODO: deadzones
+  output.left_power = tank_left_power;
+  output.right_power = tank_left_power;
 
-  const float tank_linear_max_mag = 0.1;
-  const float tank_angular_max_mag = 0.1;
-  const float tank_max_motor_mag = 0.2;
-
-  float linear = input.vx * tank_linear_max_mag;
-  float angular = input.turn_control * tank_angular_max_mag;
-
-  // assumes both go forwards on positive
-  float left = input.vx - input.turn_control;
-  float right = input.vx + input.turn_control;
-
-  // desaturate
-  float max_mag = std::max(left, right);
-  if (max_mag > tank_max_motor_mag) {
-    float multiplier = tank_max_motor_mag / max_mag;
-    left *= multiplier;
-    right *= multiplier;
-  }
-
-  output.left_power = left;
-  output.right_power = right;
-
-  output.led_color = true;
+  output.led_color = colorToInt(255, 255, 0);
 }
 
 // TODO: change multipliers to allow int-only math
@@ -134,6 +186,45 @@ void Melt::fast_update_melt() {
   output.left_power = left_throttle;
   output.right_power = right_throttle;
 
-  // TODO: make calculate color instead of only on/off
-  output.led_color = led_function(rotation_pct_us, rotation_time_micros);
+  // TODO: allow function access to more state
+  output.led_color = led_function(rotation_pct_us);
+}
+
+uint32_t Melt::led_function(int32_t rotation_pct_us) {
+  // offset for all led functions, should center so that
+  // rotation_pct_us = 0 is the direction of movement if moving directly
+  // forwards
+  // NOTE: most likely negative?
+  float process_delay_led_offset_pct = 0.0;
+  rotation_pct_us += rotation_time_micros * process_delay_led_offset_pct;
+
+  bool heading_led_on = false;
+  bool movement_vec_led_on = false;
+
+  // displays heading LED at correct location
+  if (led_heading_start_us > led_heading_end_us) {
+    // range crosses 0, checking if in range must be done with or
+    heading_led_on = rotation_pct_us >= led_heading_start_us ||
+                     rotation_pct_us <= led_heading_end_us;
+  } else {
+    heading_led_on = rotation_pct_us >= led_heading_start_us &&
+                     rotation_pct_us <= led_heading_end_us;
+  }
+
+  if (led_vector_start_us > led_vector_end_us) {
+    // range crosses 0, checking if in range must be done with or
+    movement_vec_led_on = rotation_pct_us >= led_vector_start_us ||
+                          rotation_pct_us <= led_vector_end_us;
+  } else {
+    movement_vec_led_on = rotation_pct_us >= led_vector_start_us &&
+                          rotation_pct_us <= led_vector_end_us;
+  }
+
+  if (movement_vec_led_on) {
+    return colorToInt(255, 0, 0);
+  } else if (heading_led_on) {
+    return colorToInt(0, 0, 255);
+  } else {
+    return 0;
+  }
 }
