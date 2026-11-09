@@ -1,11 +1,12 @@
 #include "robot.h"
 #include "config.h"
+#include "src/subsystems/led.h"
 #include "src/subsystems/melt.h"
 #include <Wire.h>
 
 Robot::Robot() {}
 
-bool ledFunction(uint32_t rotation_pct_us, uint32_t rotation_time_micros) {
+uint32_t ledFunction(uint32_t rotation_pct_us, uint32_t rotation_time_micros) {
   bool leds_on = false;
   // TODO: can flash led also in direction of vector with different color
 
@@ -40,7 +41,11 @@ bool ledFunction(uint32_t rotation_pct_us, uint32_t rotation_time_micros) {
               rotation_pct_us <= led_end_timestamp;
   }
 
-  return leds_on;
+  if (leds_on) {
+    return colorToInt(0, 0, 255);
+  } else {
+    return 0;
+  }
 }
 
 void Robot::begin() {
@@ -175,13 +180,17 @@ void Robot::general_update() {
 
     rpm_estimator.set_radius(ACCELEROMETER_HARDWARE_RADIUS_CM + radius_changer);
 
+    float vx = (throttle_packet->right_ud / 1000.0) - 0.5;
+    float vy = (throttle_packet->right_lr / 1000.0) - 0.5;
+
+
     // in range of [-0.5,0.5]
     tank_linear = (throttle_packet->right_ud / 1000.0) - 0.5;
     tank_angular = (throttle_packet->right_lr / 1000.0) - 0.5;
 
     // get in range of [-1,1]
-    tank_linear /= 0.5;
-    tank_angular /= 0.5;
+    tank_linear *= 2.0;
+    tank_angular *= 2.0;
 
     const float MAX_TANK_MAG = 0.3;
 
@@ -189,16 +198,13 @@ void Robot::general_update() {
     tank_linear *= MAX_TANK_MAG;
     tank_angular *= MAX_TANK_MAG;
 
-    // Serial.printf("calc: %.2f %.2f\n",tank_linear, tank_angular);
-
-    //
     MeltInput *melt_input = melt.get_input();
 
     melt_input->rpm = curr_rpm;
     melt_input->drive_type = DriveType::Melting;
 
     // all at zero for now
-    melt_input->vx = 0;
+    melt_input->vx = vx;
     melt_input->vy = 0;
     melt_input->turn_control = 0;
     melt.general_update();
@@ -264,40 +270,16 @@ void Robot::motor_update() {
     melt.fast_update();
     const MeltOutput *output = melt.get_output();
 
-    // only use led output for now
-    if (output->led_on) {
-      // Serial.println("motor led on");
-      leds.leds_on_rgb(0, 0, 255);
-    } else {
-      // Serial.println("motor led off");
-      leds.leds_off();
-    }
+    uint32_t led_color = output->led_color;
+
+    leds.leds_on_rgb(led_color & 0xff, (led_color >> 8) & 0xff,
+                     (led_color >> 16) & 0xff);
 
     // don't use these values for now, keeping manual throttle for now
     // left_motor.sendThrottle(max(output->left_power, 0.0f));
     // right_motor.sendThrottle(max(output->right_power, 0.0f));
     left_motor.sendThrottle(max(tank_linear, 0.0f));
     right_motor.sendThrottle(max(tank_linear, 0.0f));
-
-    // const float MAX_TANK_MAG = 0.2;
-    //
-    // // float left_power = tank_linear - tank_angular;
-    // // float right_power = tank_linear + tank_angular;
-    // // float max_mag = max(left_power, right_power);
-    //
-    // // // saturation compensation
-    // // if (max_mag > 1) {
-    // //   left_power /= max_mag;
-    // //   right_power /= max_mag;
-    // // }
-    //
-    // // // cap by max mag
-    // // left_power *= MAX_TANK_MAG;
-    // // right_power *= MAX_TANK_MAG;
-    // // Serial.printf("moving with speeds: %.2f
-    // // %.2f\n",left_power,right_power);
-    //
-    // // only act on positive
   } else {
     // stop the motors unless strictly good for spinning
     left_motor.send(0);

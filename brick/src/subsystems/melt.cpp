@@ -28,6 +28,14 @@ void Melt::general_update() {
   // TODO: calc the following:
   // // TODO: calcualted by PID
   base_spin_power = 0;
+
+  // TODO: figure out sign
+  // negative increases time of rotation (turns in direction opposite of
+  // movement), positive decreases time of rotation (turns in direction of
+  // movement)
+  // TODO: flipping also flips direction of turning?
+  int32_t turn_factor_us =
+      rotation_time_micros * input.turn_control * config.turn_magnitude_pct;
 }
 
 // updates fast loop params for how to move motors
@@ -41,24 +49,38 @@ void Melt::fast_update() {
 
 void Melt::fast_update_tank() {
   // TODO: deadzones
-  // TODO: config for magnitude
-  // TODO: desaturation
-  output.left_power = input.vx - input.turn_control;
-  output.right_power = input.vx + input.turn_control;
-  output.led_on = true;
+
+  const float tank_linear_max_mag = 0.1;
+  const float tank_angular_max_mag = 0.1;
+  const float tank_max_motor_mag = 0.2;
+
+  float linear = input.vx * tank_linear_max_mag;
+  float angular = input.turn_control * tank_angular_max_mag;
+
+  // assumes both go forwards on positive
+  float left = input.vx - input.turn_control;
+  float right = input.vx + input.turn_control;
+
+  // desaturate
+  float max_mag = std::max(left, right);
+  if (max_mag > tank_max_motor_mag) {
+    float multiplier = tank_max_motor_mag / max_mag;
+    left *= multiplier;
+    right *= multiplier;
+  }
+
+  output.left_power = left;
+  output.right_power = right;
+
+  output.led_color = true;
 }
 
 // TODO: change multipliers to allow int-only math
 void Melt::fast_update_melt() {
+  rotation_start_timestamp += turn_factor_us;
+
   // amount of time spent in current rotation, in us
   int32_t rotation_pct_us = micros() - rotation_start_timestamp;
-
-  const float turn_melt_multiplier = 1;
-  // TODO: figure out magnitudes and directions
-  // TODO: this amount should be figured out on general update
-  // increasing rotation_pct_us moves the controlled heading in direction of
-  // rotation. decreasing has opposite effect
-  rotation_pct_us += input.turn_control * turn_melt_multiplier;
 
   // did a full rotation
   if (rotation_pct_us > rotation_time_micros) {
@@ -104,8 +126,8 @@ void Melt::fast_update_melt() {
     linear_power = factor * config.max_translation_power;
   }
 
-  // ccw setup
-  // TODO: switch to both positive -> both motors forwards, change math to match
+  // TODO: ccw setup?
+  // assumes both + means bot goes forwards
   left_throttle -= linear_power;
   right_throttle += linear_power;
 
@@ -113,5 +135,5 @@ void Melt::fast_update_melt() {
   output.right_power = right_throttle;
 
   // TODO: make calculate color instead of only on/off
-  output.led_on = led_function(rotation_pct_us, rotation_time_micros);
+  output.led_color = led_function(rotation_pct_us, rotation_time_micros);
 }

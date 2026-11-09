@@ -13,7 +13,6 @@
 // for wifi connection
 #define HEARTBEAT_MS 50
 #define TIMEOUT_MS 250
-#define NETWORK_ID 0x12345678
 
 // // ------------ Spin control settings ----------------
-#define ACCELEROMETER_HARDWARE_RADIUS_CM 4.48f
+#define ACCELEROMETER_HARDWARE_RADIUS_CM 4.78f

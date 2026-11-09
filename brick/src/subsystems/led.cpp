@@ -3,6 +3,10 @@
 #include <Arduino.h>
 #include <cstring>
 
+uint32_t colorToInt(uint8_t red, uint8_t green, uint8_t blue) {
+  return red | (uint32_t(green) << 8) | (uint32_t(blue) << 16);
+}
+
 // TODO: make destructor
 rmt_symbol_word_t led_rmt_data[3 * NUM_LEDS * 8];
 

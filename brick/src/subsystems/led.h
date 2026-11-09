@@ -1,7 +1,10 @@
 #pragma once
 
+#include <cstdint>
 #include <driver/gpio.h>
 #include <driver/rmt_tx.h>
+
+uint32_t colorToInt(uint8_t red, uint8_t green, uint8_t blue);
 
 class LED {
 public:

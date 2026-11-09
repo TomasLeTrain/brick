@@ -28,7 +28,8 @@ struct MeltOutput {
   float left_power;
   float right_power;
 
-  bool led_on;
+  // in format: rgb0
+  uint32_t led_color;
 };
 
 // TODO: change to all be in config.h?
@@ -38,14 +39,13 @@ struct MeltConfig {
   float max_translation_power;
   TranslationMethod translation_method;
 
-  // 0 - no bar, 1 - entire rotation, 0.5 - half the circle, facing heading,
-  // etc.
-  float led_width;
+  // how sensitive turning for melt is
+  float turn_magnitude_pct;
 };
 
 class Melt {
-  using LedFunction = bool (*)(uint32_t rotation_pct,
-                               uint32_t rotation_total_micros);
+  using LedFunction = uint32_t (*)(uint32_t rotation_pct,
+                                   uint32_t rotation_total_micros);
 
 public:
   // updates fast loop params for how to move motors
@@ -71,6 +71,8 @@ private:
   MeltOutput output;
   MeltConfig config;
 
+  LedFunction led_function = nullptr;
+
   // below are values calculated by generated update
   uint32_t rotation_start_timestamp = 0;
   uint32_t rotation_time_micros;
@@ -78,10 +80,8 @@ private:
   // TODO: calcualted by PID
   float base_spin_power;
 
-  int32_t led_start_timestamp;
-  int32_t led_end_timestamp;
-
   float target_theta;
   float current_theta_multiplier;
-  LedFunction led_function = nullptr;
+
+  int32_t turn_factor_us;
 };
