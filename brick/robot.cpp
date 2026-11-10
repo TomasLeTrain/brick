@@ -34,7 +34,6 @@ void Robot::begin() {
   accel.sample_offset();
 
   // only calibrate if accel is properly connected
-  // TODO: propaate error with leds/some other way
   if (!accel.has_connection_error()) {
     // sample offset
     // TODO: move to other place/when should this happen?
@@ -90,8 +89,6 @@ void Robot::general_update() {
   uint16_t raw_z = accel.get_raw_z_accel();
 
   ThrottlePacket *throttle_packet = comms.get_throttle_packet();
-
-  // TODO: deadzones!
 
   if (!comms.connected()) {
     Serial.println("network dc");
@@ -202,13 +199,7 @@ void Robot::general_update() {
       //               throttle_packet->knob_left, throttle_packet->knob_right,
       //               throttle_packet->connected);
       Serial.printf("x:%1.3f,y:%.3f,z:%.3f\n", x, y, z);
-      // Serial.printf("x:%d,y:%d,z:%d\n", raw_x, raw_y, raw_z);
-
       lastMessage = millis();
-      //  Serial.printf("packet: %d\n",throttle_packet->throttle);
-      // Serial.printf("connected: %d
-      // %d\n",comms.get_link()->droppedRxPackets(),micros(),
-      // throttle_packet->throttle);
     }
   } else {
     Serial.println("disconnected");

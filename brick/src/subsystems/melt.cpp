@@ -154,7 +154,7 @@ void Melt::fast_update_melt() {
 
   if (config.translation_method == TranslationMethod::Square) {
     // only move when difference inside move_threshold
-    // TODO: move to somewhere else in config
+    // TODO: move to somewhere else in config?
     const float move_threshold = (M_PI / 8.0);
     if (fabsf(diff) < move_threshold) {
       linear_power = config.max_translation_power;

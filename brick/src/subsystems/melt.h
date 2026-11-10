@@ -97,7 +97,6 @@ private:
   int32_t led_heading_start_us, led_heading_end_us;
   int32_t led_vector_start_us, led_vector_end_us;
 
-  // TODO: calcualted by PID
   float base_spin_power;
 
   // in range [0,2PI]

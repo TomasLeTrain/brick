@@ -82,7 +82,6 @@ void loop() {
 
   // Serial.printf("swa:%d,swb:%d,swc:%d,swd:%d\n",IBus.readChannel(6),IBus.readChannel(7),IBus.readChannel(8),IBus.readChannel(9));
 
-  // TODO: figure out their values
   packet.swa = (IBus.readChannel(6) - 1000) > 500;
   packet.swb = (IBus.readChannel(7) - 1000) > 500;
   // packet.swc = IBus.readChannel(4) - 1000;
