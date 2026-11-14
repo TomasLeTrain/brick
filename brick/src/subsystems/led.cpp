@@ -7,6 +7,31 @@ uint32_t colorToInt(uint8_t red, uint8_t green, uint8_t blue) {
   return red | (uint32_t(green) << 8) | (uint32_t(blue) << 16);
 }
 
+void fill_color(uint8_t target_red, uint8_t target_green, uint8_t target_blue,
+                uint8_t red[], uint8_t green[], uint8_t blue[]) {
+  for (int i = 0; i < NUM_LEDS; i++) {
+    red[i] = target_red;
+    green[i] = target_green;
+    blue[i] = target_blue;
+  }
+}
+
+void color_first_n(uint8_t target_red, uint8_t target_green,
+                   uint8_t target_blue, uint8_t red[], uint8_t green[],
+                   uint8_t blue[], int color_n) {
+  for (int i = 0; i < NUM_LEDS; i++) {
+    if (i < color_n) {
+      red[i] = target_red;
+      green[i] = target_green;
+      blue[i] = target_blue;
+    } else {
+      red[i] = 0;
+      green[i] = 0;
+      blue[i] = 0;
+    }
+  }
+}
+
 rmt_symbol_word_t led_rmt_data[3 * NUM_LEDS * 8];
 
 uint8_t pixel_color[3 * NUM_LEDS];
@@ -95,8 +120,23 @@ void LED::leds_on_gradient(uint8_t color) {
 
 void LED::leds_off() {
   // set all pixels to zero
-  memset(pixel_color, 0, sizeof(uint8_t) * sizeof(pixel_color));
-  write_pixel();
+  memset(pixel_color, 0, sizeof(pixel_color));
+  write_pixels();
+}
+
+void LED::leds_on_array(const uint8_t red[], const uint8_t green[],
+                        const uint8_t blue[]) {
+  for (size_t i = 0; i < NUM_LEDS; i++) {
+    int32_t red_val = (int(red[i]) * brightness) >> 8;
+    int32_t green_val = (int(green[i]) * brightness) >> 8;
+    int32_t blue_val = (int(blue[i]) * brightness) >> 8;
+
+    // neopixels usually use GRB addressing rather than RGB
+    pixel_color[i * 3 + 0] = green_val;
+    pixel_color[i * 3 + 1] = red_val;
+    pixel_color[i * 3 + 2] = blue_val;
+  }
+  write_pixels();
 }
 
 void LED::leds_on_rgb(uint8_t red, uint8_t green, uint8_t blue) {
@@ -106,9 +146,9 @@ void LED::leds_on_rgb(uint8_t red, uint8_t green, uint8_t blue) {
 
   // NOTE: shifting (diving by 256) instead of diving by /255 for almost same
   // result
-  int red_val = (int(red) * brightness) >> 8;
-  int green_val = (int(green) * brightness) >> 8;
-  int blue_val = (int(blue) * brightness) >> 8;
+  uint8_t red_val = (int(red) * brightness) >> 8;
+  uint8_t green_val = (int(green) * brightness) >> 8;
+  uint8_t blue_val = (int(blue) * brightness) >> 8;
 
   // neopixels usually use GRB addressing rather than RGB
   for (size_t i = 0; i < sizeof pixel_color; i += 3) {
@@ -116,10 +156,10 @@ void LED::leds_on_rgb(uint8_t red, uint8_t green, uint8_t blue) {
     pixel_color[i + 1] = red_val;
     pixel_color[i + 2] = blue_val;
   }
-  write_pixel();
+  write_pixels();
 }
 
-void LED::write_pixel() {
+void LED::write_pixels() {
   int index = 0;
   for (uint8_t chan : pixel_color) {
     uint8_t value = chan;

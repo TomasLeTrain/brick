@@ -16,7 +16,8 @@ void Melt::general_update() {
   // //
   // https://github.com/TGower/rotation_sensing/blob/585d0a25411233ff8aafb96f5dd6b3d997775a80/receiver/main/main.c#L345
   //
-  target_theta = atan2f(-input.vy, input.vx) + M_PI_2;
+  target_theta = atan2f(input.vy, input.vx);
+
   // Normalize 0..2PI
   if (target_theta < 0)
     target_theta += 2.0f * M_PI;
@@ -103,6 +104,7 @@ void Melt::general_update() {
   // led_start_timestamp wraps around since subtracting
   led_vector_start_us = vector_led_offset_us - half_led_vector_width_us;
   led_vector_end_us = vector_led_offset_us + half_led_heading_width_us;
+  led_vector_magnitude = melt_linear_mag;
 }
 
 // updates fast loop params for how to move motors
@@ -118,7 +120,7 @@ void Melt::fast_update_tank() {
   output.left_power = tank_left_power;
   output.right_power = tank_left_power;
 
-  output.led_color = colorToInt(255, 255, 0);
+  fill_color(255, 255, 0, output.led_red, output.led_green, output.led_blue);
 }
 
 // TODO: change multipliers to allow int-only math
@@ -184,10 +186,14 @@ void Melt::fast_update_melt() {
   output.right_power = right_throttle;
 
   // TODO: allow function access to more state
-  output.led_color = led_function(rotation_pct_us);
+  // output.led_color = led_function(rotation_pct_us);
+  // output.led_color = ;
+  led_function(rotation_pct_us, output.led_red, output.led_green,
+               output.led_blue);
 }
 
-uint32_t Melt::led_function(int32_t rotation_pct_us) {
+void Melt::led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],
+                        uint8_t blue[]) {
   // offset for all led functions, should center so that
   // rotation_pct_us = 0 is the direction of movement if moving directly
   // forwards
@@ -218,10 +224,17 @@ uint32_t Melt::led_function(int32_t rotation_pct_us) {
   }
 
   if (movement_vec_led_on) {
-    return colorToInt(255, 0, 0);
+    int num_vector_leds_on = led_vector_magnitude * 8;
+    color_first_n(255, 255, 0, red, green, blue, num_vector_leds_on);
   } else if (heading_led_on) {
-    return colorToInt(0, 0, 255);
+    fill_color(0, 0, 255, red, green, blue);
   } else {
-    return 0;
+    fill_color(0, 0, 0, red, green, blue);
   }
+
+  // if (heading_led_on) {
+  //   fill_color(0, 0, 255, red, green, blue);
+  // } else {
+  //   fill_color(0, 0, 0, red, green, blue);
+  // }
 }

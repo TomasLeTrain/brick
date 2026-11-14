@@ -138,14 +138,14 @@ void Robot::general_update() {
     float turn_control = (throttle_packet->left_lr / 1000.0) - 0.5;
     float target_rpm_control = (throttle_packet->left_ud / 1000.0) - 0.5;
 
-    // convert to range [-0.5, 0.5]
+    // convert to range [-1, 1]
     vx *= 2.0;
     vy *= 2.0;
     turn_control *= 2.0;
     target_rpm_control *= 2.0;
 
     // in range of [-0.5,0.5]
-    tank_linear = (throttle_packet->right_ud / 1000.0) - 0.5;
+    tank_linear = (throttle_packet->left_ud / 1000.0) - 0.5;
     tank_angular = (throttle_packet->right_lr / 1000.0) - 0.5;
 
     // get in range of [-1,1]
@@ -165,10 +165,10 @@ void Robot::general_update() {
 
     // all at zero for now
     melt_input->vx = vx;
-    // melt_input->vy = vy;
+    melt_input->vy = vy;
     // melt_input->turn_control = turn_control;
     // melt_input->target_rpm_control = target_rpm_control;
-    melt_input->vy = 0;
+    // melt_input->vy = 0;
     melt_input->turn_control = 0;
     melt_input->target_rpm_control = 0;
 
@@ -227,11 +227,7 @@ void Robot::motor_update() {
   } else if (connected == ConnectionState::Ready) {
     melt.fast_update();
     const MeltOutput *output = melt.get_output();
-
-    uint32_t led_color = output->led_color;
-
-    leds.leds_on_rgb(led_color & 0xff, (led_color >> 8) & 0xff,
-                     (led_color >> 16) & 0xff);
+    leds.leds_on_array(output->led_red, output->led_green, output->led_blue);
 
     // don't use these values for now, keeping manual throttle for now
     // left_motor.sendThrottle(max(output->left_power, 0.0f));

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../config.h"
 #include "pid.h"
 #include <cstdint>
 
@@ -32,6 +33,10 @@ struct MeltOutput {
 
   // in format: rgb0
   uint32_t led_color;
+
+  uint8_t led_red[NUM_LEDS];
+  uint8_t led_green[NUM_LEDS];
+  uint8_t led_blue[NUM_LEDS];
 };
 
 struct MeltConfig {
@@ -55,8 +60,8 @@ struct MeltConfig {
   // no motor moves faster than this amount in tank
   float tank_max_motor_mag = 0.2;
 
-  float heading_led_width = 0.5;
-  float vector_led_width = 0.1f;
+  float heading_led_width = 0.5f;
+  float vector_led_width = 0.05f;
 };
 
 class Melt {
@@ -82,7 +87,8 @@ private:
   // updates output with melt driving scheme
   void fast_update_melt();
 
-  uint32_t led_function(int32_t rotation_pct_us);
+  void led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],
+                    uint8_t blue[]);
 
   MeltInput input;
   MeltOutput output;
@@ -96,6 +102,9 @@ private:
 
   int32_t led_heading_start_us, led_heading_end_us;
   int32_t led_vector_start_us, led_vector_end_us;
+
+  // in range [0,1]
+  float led_vector_magnitude;
 
   float base_spin_power;
 

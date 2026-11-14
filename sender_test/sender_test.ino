@@ -2,11 +2,10 @@
 #include "IBusBM.h"
 #include "../common/packets.h"
 
-#define NETWORK_ID 0x12345678
 #define HEARTBEAT_MS 50
 #define TIMEOUT_MS 250
 
-NowPair peer_link(NowPair::Role::Master, 6, NETWORK_ID, HEARTBEAT_MS, TIMEOUT_MS);
+NowPair peer_link(NowPair::Role::Master, 6, HEARTBEAT_MS, TIMEOUT_MS);
 bool peerConnected = false;
 
 IBusBM IBus;
@@ -16,7 +15,7 @@ void connectionChanged(bool connected, void *arg) {
   Serial.println(connected ? "Slave connected" : "Slave disconnected");
 }
 
-void received(const uint8_t *data, size_t length,int rssiDbm, int rssiTimestamp, void *arg) {
+void received(const uint8_t *data, size_t length, int rssiDbm, uint32_t rssiTimestamp, void *arg) {
   TelemetryPacket packet;
   bool res = packet.deserialize(data, length);
   if (res) {
