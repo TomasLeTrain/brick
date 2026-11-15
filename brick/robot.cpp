@@ -138,6 +138,9 @@ void Robot::general_update() {
     float turn_control = (throttle_packet->left_lr / 1000.0) - 0.5;
     float target_rpm_control = (throttle_packet->left_ud / 1000.0) - 0.5;
 
+    // in range [0,1]
+    float led_shift_amount = (throttle_packet->knob_right / 1000.0);
+
     // convert to range [-1, 1]
     vx *= 2.0;
     vy *= 2.0;
@@ -171,7 +174,8 @@ void Robot::general_update() {
     // melt_input->target_rpm_control = target_rpm_control;
     // melt_input->vy = 0;
     // melt_input->turn_control = 0;
-    melt_input->target_rpm_control = 0;
+    melt_input->target_rpm_control = target_rpm_control;
+    melt_input->led_shift_amount = led_shift_amount;
 
     melt.general_update();
   } else {
@@ -231,10 +235,10 @@ void Robot::motor_update() {
     leds.leds_on_array(output->led_red, output->led_green, output->led_blue);
 
     // don't use these values for now, keeping manual throttle for now
-    // left_motor.sendThrottle(max(output->left_power, 0.0f));
-    // right_motor.sendThrottle(max(output->right_power, 0.0f));
-    left_motor.sendThrottle(max(tank_linear, 0.0f));
-    right_motor.sendThrottle(max(tank_linear, 0.0f));
+    left_motor.sendThrottle(max(output->left_power, 0.0f));
+    right_motor.sendThrottle(max(output->right_power, 0.0f));
+    // left_motor.sendThrottle(max(tank_linear, 0.0f));
+    // right_motor.sendThrottle(max(tank_linear, 0.0f));
   } else {
     // stop the motors unless strictly good for spinning
     left_motor.send(0);

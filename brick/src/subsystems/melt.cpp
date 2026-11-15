@@ -69,8 +69,10 @@ void Melt::general_update() {
     }
   }
 
-  throtte_pid.setTargetRPM(input.target_rpm_control * config.max_target_rpm);
-  base_spin_power = throtte_pid.update(input.rpm);
+  // throtte_pid.setTargetRPM(input.target_rpm_control * config.max_target_rpm);
+  // base_spin_power = throtte_pid.update(input.rpm);
+  base_spin_power =
+      input.target_rpm_control * config.melt_max_throttle_magnitude;
 
   float turn_control = input.turn_control;
 
@@ -109,12 +111,6 @@ void Melt::general_update() {
       rotation_time_micros * (config.vector_led_width / 2.f);
 
   // center around the location of the vector
-  // led_start_timestamp wraps around since subtracting
-  // led_vector_start_us = vector_led_offset_us - half_led_vector_width_us;
-  // led_vector_end_us = vector_led_offset_us + half_led_heading_width_us;
-  //
-  // led_vector_start_us = vector_led_offset_us - 0.01 * rotation_time_micros;
-  // led_vector_end_us = vector_led_offset_us + 0.01 * rotation_time_micros;
   led_vector_start_us = vector_led_offset_us - half_led_vector_width_us;
   led_vector_end_us = vector_led_offset_us + half_led_vector_width_us;
 
@@ -175,12 +171,17 @@ void Melt::fast_update_melt() {
 
   float linear_power = 0;
 
+  // NOTE: assumes cannot go below zero meaning on the other direction
+  // scales to controller magnitude, independent of max power
+  float max_linear_power =
+      std::min(config.max_translation_power, base_spin_power) * melt_linear_mag;
+
   if (config.translation_method == TranslationMethod::Square) {
     // only move when difference inside move_threshold
     // TODO: move to somewhere else in config?
     const float move_threshold = (M_PI / 8.0);
     if (fabsf(diff) < move_threshold) {
-      linear_power = config.max_translation_power;
+      linear_power = max_linear_power;
     } else {
       linear_power = 0;
     }
@@ -188,27 +189,21 @@ void Melt::fast_update_melt() {
     // Max strength at diff = 0 (cos(0)=1)
     // Zero added at diff = +/- 90 (cos(90)=0)
     // Min strength at diff = +/- 180 (cos(180)=-1)
-    linear_power = cosf(diff) * config.max_translation_power;
+    linear_power = cosf(diff) * max_linear_power;
   } else if (config.translation_method == TranslationMethod::Linear) {
     // very close linear approximation to sine method
     float factor = 1.0f - (2.0f * fabsf(diff) / M_PI);
-    linear_power = factor * config.max_translation_power;
+    linear_power = factor * max_linear_power;
   }
-
-  linear_power *= melt_linear_mag;
 
   // TODO: ccw setup?
   // assumes both + means bot goes forwards
-
   left_throttle -= linear_power;
   right_throttle += linear_power;
 
   output.left_power = left_throttle;
   output.right_power = right_throttle;
 
-  // TODO: allow function access to more state
-  // output.led_color = led_function(rotation_pct_us);
-  // output.led_color = ;
   led_function(rotation_pct_us, output.led_red, output.led_green,
                output.led_blue);
 }
@@ -219,8 +214,15 @@ void Melt::led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],
   // rotation_pct_us = 0 is the direction of movement if moving directly
   // forwards
   // NOTE: most likely negative?
-  float process_delay_led_offset_pct = 0.0;
-  rotation_pct_us += rotation_time_micros * process_delay_led_offset_pct;
+  // float process_delay_led_offset_pct = 0.0;
+  rotation_pct_us += rotation_time_micros * input.led_shift_amount;
+
+  if (rotation_pct_us > rotation_time_micros) {
+    rotation_pct_us -= rotation_time_micros;
+  }
+  if (rotation_pct_us < 0) {
+    rotation_pct_us += rotation_time_micros;
+  }
 
   bool heading_led_on = false;
   bool movement_vec_led_on = false;
@@ -252,10 +254,4 @@ void Melt::led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],
   } else {
     fill_color(0, 0, 0, red, green, blue);
   }
-
-  // if (heading_led_on) {
-  //   fill_color(0, 0, 255, red, green, blue);
-  // } else {
-  //   fill_color(0, 0, 0, red, green, blue);
-  // }
 }

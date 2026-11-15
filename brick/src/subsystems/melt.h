@@ -22,6 +22,9 @@ struct MeltInput {
   // turn component of movement
   float turn_control;
 
+  // amount of shift in the led movement
+  float led_shift_amount;
+
   // type of driving being used
   DriveType drive_type;
 };
@@ -43,7 +46,7 @@ struct MeltConfig {
   // the absolute max that is applied to motor for translation
   // on range [-1,1]
   float max_translation_power = 0.1;
-  TranslationMethod translation_method = TranslationMethod::Linear;
+  TranslationMethod translation_method = TranslationMethod::Sine;
 
   // how sensitive turning for melt is
   float turn_magnitude_pct = 0.0013;
@@ -53,6 +56,9 @@ struct MeltConfig {
   float melt_deadzone = 0.1;
   float melt_turn_control_deadzone = 0.1;
   float tank_deadzone = 0.1;
+
+  // max base throttle for spinning
+  float melt_max_throttle_magnitude = 0.3;
 
   // max linear/angular powers for tank
   float tank_linear_max_mag = 0.1;
