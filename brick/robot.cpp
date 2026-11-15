@@ -166,10 +166,11 @@ void Robot::general_update() {
     // all at zero for now
     melt_input->vx = vx;
     melt_input->vy = vy;
-    // melt_input->turn_control = turn_control;
+    // melt_input->vy = 0;
+    melt_input->turn_control = turn_control;
     // melt_input->target_rpm_control = target_rpm_control;
     // melt_input->vy = 0;
-    melt_input->turn_control = 0;
+    // melt_input->turn_control = 0;
     melt_input->target_rpm_control = 0;
 
     melt.general_update();

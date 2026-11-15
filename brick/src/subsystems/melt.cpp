@@ -10,6 +10,7 @@ void Melt::general_update() {
   // (min / rot) * (60 sec / 1 min) * (1'000'000 usecs / 1 sec) = (usec / rot)
   // TODO: min rpm should be handled somewhere else?
   rotation_time_micros = (60 * 1'000'000) / fmaxf(input.rpm, 10);
+
   //
   // // can move in any direction by finding the target angle, finding the
   // // difference, and moving accordingly. some impl code taken from
@@ -91,19 +92,39 @@ void Melt::general_update() {
 
   // center around 0
   // led_start_timestamp wraps around since subtracting
-  led_heading_start_us = rotation_time_micros - half_led_heading_width_us;
-  led_heading_end_us = half_led_heading_width_us;
+  led_heading_start_us = 0 - half_led_heading_width_us;
+  led_heading_end_us = 0 + half_led_heading_width_us;
+
+  if (led_heading_start_us < 0) {
+    led_heading_start_us += rotation_time_micros;
+  }
+  if (led_heading_end_us > rotation_time_micros) {
+    led_heading_end_us -= rotation_time_micros;
+  }
 
   float target_theta_pct = target_theta / (2.f * M_PI);
   float vector_led_offset_us = rotation_time_micros * target_theta_pct;
 
-  const int32_t half_led_vector_width_us =
-      (rotation_time_micros * config.vector_led_width) / 2;
+  float half_led_vector_width_us =
+      rotation_time_micros * (config.vector_led_width / 2.f);
 
   // center around the location of the vector
   // led_start_timestamp wraps around since subtracting
+  // led_vector_start_us = vector_led_offset_us - half_led_vector_width_us;
+  // led_vector_end_us = vector_led_offset_us + half_led_heading_width_us;
+  //
+  // led_vector_start_us = vector_led_offset_us - 0.01 * rotation_time_micros;
+  // led_vector_end_us = vector_led_offset_us + 0.01 * rotation_time_micros;
   led_vector_start_us = vector_led_offset_us - half_led_vector_width_us;
-  led_vector_end_us = vector_led_offset_us + half_led_heading_width_us;
+  led_vector_end_us = vector_led_offset_us + half_led_vector_width_us;
+
+  if (led_vector_start_us < 0) {
+    led_vector_start_us += rotation_time_micros;
+  }
+  if (led_vector_end_us > rotation_time_micros) {
+    led_vector_end_us -= rotation_time_micros;
+  }
+
   led_vector_magnitude = melt_linear_mag;
 }
 

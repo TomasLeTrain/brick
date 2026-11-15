@@ -46,7 +46,7 @@ struct MeltConfig {
   TranslationMethod translation_method = TranslationMethod::Linear;
 
   // how sensitive turning for melt is
-  float turn_magnitude_pct = 0.0001;
+  float turn_magnitude_pct = 0.0013;
 
   float max_target_rpm = 3000;
 
@@ -61,7 +61,7 @@ struct MeltConfig {
   float tank_max_motor_mag = 0.2;
 
   float heading_led_width = 0.5f;
-  float vector_led_width = 0.05f;
+  float vector_led_width = 0.02f;
 };
 
 class Melt {
