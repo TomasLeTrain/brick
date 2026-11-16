@@ -137,16 +137,15 @@ void Robot::general_update() {
     float vx = (throttle_packet->right_ud / 1000.0) - 0.5;
     float vy = (throttle_packet->right_lr / 1000.0) - 0.5;
     float turn_control = (throttle_packet->left_lr / 1000.0) - 0.5;
-    float target_rpm_control = (throttle_packet->left_ud / 1000.0) - 0.5;
 
     // in range [0,1]
+    float target_rpm_control = (throttle_packet->left_ud / 1000.0);
     float led_shift_amount = (throttle_packet->knob_right / 1000.0);
 
     // convert to range [-1, 1]
     vx *= 2.0;
     vy *= 2.0;
     turn_control *= 2.0;
-    target_rpm_control *= 2.0;
 
     // in range of [-0.5,0.5]
     tank_linear = (throttle_packet->left_ud / 1000.0) - 0.5;

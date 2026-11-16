@@ -20,6 +20,7 @@ struct MeltInput {
   float target_rpm_control;
 
   // turn component of movement
+  // also repurposed for tank
   float turn_control;
 
   // amount of shift in the led movement

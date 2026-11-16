@@ -16,13 +16,14 @@ void connectionChanged(bool connected, void *arg) {
 }
 
 bool print_next_packet = false;
+float curr_throttle = 0;
 
 void received(const uint8_t *data, size_t length, int rssiDbm, uint32_t rssiTimestamp, void *arg) {
   TelemetryPacket packet;
   bool res = packet.deserialize(data, length);
   if (res) {
     if(print_next_packet){
-      Serial.printf("x:%1.3f,y:%.3f,z:%.3f,rpm:%.3f,radius:%.3f\n", TelemetryPacket::convertToG(packet.a_x), TelemetryPacket::convertToG(packet.a_y), TelemetryPacket::convertToG(packet.a_z), packet.rpm,packet.radius);
+      Serial.printf("x:%1.3f,y:%.3f,z:%.3f,rpm:%.3f,radius:%.3f,throttle:%.3f\n", TelemetryPacket::convertToG(packet.a_x), TelemetryPacket::convertToG(packet.a_y), TelemetryPacket::convertToG(packet.a_z), packet.rpm,packet.radius,curr_throttle);
       print_next_packet = false;
     }
     
@@ -141,6 +142,7 @@ void loop() {
       print_next_packet = true;
     }
     last_swb_state = packet.swb;
+    curr_throttle = packet.left_ud;
   }
 
   static uint32_t lastMessage = 0;
