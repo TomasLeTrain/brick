@@ -11,11 +11,12 @@ struct TelemetryPacket {
   int16_t a_z;
 
   float rpm;
+  float radius;
   int32_t micros_timestamp;
 
   bool deserialize(const uint8_t *data, size_t length);
   size_t serialize(uint8_t *buffer);
-  static size_t expected_packet_size() { return 12; }
+  static size_t expected_packet_size() { return 14; }
 
   float static convertToG(int16_t reading, int16_t maxScale = 400) {
     float result = (float(maxScale) * float(reading)) / 2047;
@@ -35,12 +36,17 @@ inline size_t TelemetryPacket::serialize(uint8_t *buffer) {
   buffer[6] = ser_rpm & 0xff;
   buffer[7] = (ser_rpm >> 8) & 0xff;
 
-  buffer[8] = micros_timestamp & 0xff;
-  buffer[9] = (micros_timestamp >> 8) & 0xff;
-  buffer[10] = (micros_timestamp >> 16) & 0xff;
-  buffer[11] = (micros_timestamp >> 24) & 0xff;
+  // NOTE: assumes max possible radius is 7
+  int16_t ser_radius = (radius * 2047) / 7.f;
+  buffer[8] = ser_radius & 0xff;
+  buffer[9] = (ser_radius >> 8) & 0xff;
 
-  return 12;
+  buffer[10] = micros_timestamp & 0xff;
+  buffer[11] = (micros_timestamp >> 8) & 0xff;
+  buffer[12] = (micros_timestamp >> 16) & 0xff;
+  buffer[13] = (micros_timestamp >> 24) & 0xff;
+
+  return 14;
 }
 
 inline bool TelemetryPacket::deserialize(const uint8_t *data, size_t length) {
@@ -52,10 +58,12 @@ inline bool TelemetryPacket::deserialize(const uint8_t *data, size_t length) {
   a_y = data[2] | (data[3] << 8);
   a_z = data[4] | (data[5] << 8);
   int16_t ser_rpm = data[6] | (data[7] << 8);
-  rpm = (ser_rpm * 4000.0) / 2047.0;
+  rpm = (ser_rpm * 4000.f) / 2047.f;
+  int16_t ser_radius = data[8] | (data[9] << 8);
+  radius = (ser_radius * 7.f) / 2047.f;
 
   micros_timestamp =
-      data[8] | (data[9] << 8) | (data[10] << 16) | (data[11] << 24);
+      data[10] | (data[11] << 8) | (data[12] << 16) | (data[13] << 24);
 
   return true;
 }

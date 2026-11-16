@@ -107,8 +107,8 @@ void Robot::general_update() {
 
     // [-0.5,0.5]
     float radius_changer = (throttle_packet->knob_left / 1000.0) - 0.5;
-    // [-1.5,1.5]
-    radius_changer *= 3;
+    // [-0.5,0.5]
+    radius_changer *= 0.5 * 2;
 
     rpm_estimator.set_radius(ACCELEROMETER_HARDWARE_RADIUS_CM + radius_changer);
   }
@@ -127,7 +127,8 @@ void Robot::general_update() {
 
     // [-0.5,0.5]
     float radius_changer = (throttle_packet->knob_left / 1000.0) - 0.5;
-    // [-1.5,1.5]
+
+    // [-1.5,1.5] cm
     radius_changer *= 3;
 
     rpm_estimator.set_radius(ACCELEROMETER_HARDWARE_RADIUS_CM + radius_changer);
@@ -216,6 +217,7 @@ void Robot::general_update() {
   telemetry_packet.a_y = raw_y;
   telemetry_packet.a_z = raw_z;
   telemetry_packet.rpm = rpm_estimator.get_estimated_rpm();
+  telemetry_packet.radius = rpm_estimator.get_radius();
   telemetry_packet.micros_timestamp = accel_measurement_micros;
 
   comms.send(&telemetry_packet);

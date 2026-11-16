@@ -15,4 +15,4 @@
 #define TIMEOUT_MS 250
 
 // // ------------ Spin control settings ----------------
-#define ACCELEROMETER_HARDWARE_RADIUS_CM 4.78f
+#define ACCELEROMETER_HARDWARE_RADIUS_CM 4.668f

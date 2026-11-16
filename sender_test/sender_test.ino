@@ -15,11 +15,17 @@ void connectionChanged(bool connected, void *arg) {
   Serial.println(connected ? "Slave connected" : "Slave disconnected");
 }
 
+bool print_next_packet = false;
+
 void received(const uint8_t *data, size_t length, int rssiDbm, uint32_t rssiTimestamp, void *arg) {
   TelemetryPacket packet;
   bool res = packet.deserialize(data, length);
   if (res) {
-    Serial.printf("x:%1.3f,y:%.3f,z:%.3f,rpm:%.3f\n", TelemetryPacket::convertToG(packet.a_x), TelemetryPacket::convertToG(packet.a_y), TelemetryPacket::convertToG(packet.a_z), packet.rpm);
+    if(print_next_packet){
+      Serial.printf("x:%1.3f,y:%.3f,z:%.3f,rpm:%.3f,radius:%.3f\n", TelemetryPacket::convertToG(packet.a_x), TelemetryPacket::convertToG(packet.a_y), TelemetryPacket::convertToG(packet.a_z), packet.rpm,packet.radius);
+      print_next_packet = false;
+    }
+    
     // Serial.printf("x:%d,y:%d,z:%d\n", packet.a_x, packet.a_y, packet.a_z);
     digitalWrite(LED_BUILTIN, LOW);
   } else {
@@ -125,6 +131,16 @@ void loop() {
   // way too long without any new packets, disconnect
   if (millis() - last_cnt_rec_update > 100) {
     packet.connected = false;
+  }
+
+  static bool last_swb_state = true;
+
+  if(packet.connected){
+    // from high to low, print next packet
+    if(last_swb_state && !packet.swb){
+      print_next_packet = true;
+    }
+    last_swb_state = packet.swb;
   }
 
   static uint32_t lastMessage = 0;

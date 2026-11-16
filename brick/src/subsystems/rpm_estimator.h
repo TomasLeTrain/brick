@@ -10,6 +10,8 @@ public:
   void set_radius(float radius) { this->radius = radius; }
   void set_alpha(float alpha) { this->alpha = alpha; }
 
+  float get_radius() { return this->radius; }
+
 private:
   void update_filter(float curr_mag);
   float get_filter_estimate();
