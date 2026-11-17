@@ -25,7 +25,7 @@ void received(const uint8_t *data, size_t length, int rssiDbm, uint32_t rssiTime
   bool res = packet.deserialize(data, length);
   if (res) {
     if(print_next_packet && !dump_receiver.receiving()){
-      Serial.printf("x:%1.3f,y:%.3f,z:%.3f,rpm:%.3f,radius:%.3f,throttle:%.3f\n", TelemetryPacket::convertToG(packet.a_x), TelemetryPacket::convertToG(packet.a_y), TelemetryPacket::convertToG(packet.a_z), packet.rpm,packet.radius,curr_throttle);
+      Serial.printf("x:%1.3f,y:%.3f,z:%.3f,rpm:%.3f,throttle:%.3f\n", TelemetryPacket::convertToG(packet.a_x), TelemetryPacket::convertToG(packet.a_y), TelemetryPacket::convertToG(packet.a_z), packet.rpm,curr_throttle);
       print_next_packet = false;
     }
     

@@ -13,10 +13,7 @@ bool RunRecorder::validate(int slot, RunDump::Header &header) {
   auto file = LittleFS.open(path(slot), FILE_READ);
   if (!file || file.read(reinterpret_cast<uint8_t *>(&header), sizeof(header)) !=
                    sizeof(header) ||
-      header.magic_value != RunDump::magic ||
-      header.format_version != RunDump::version ||
-      header.record_size != sizeof(RunDump::Record) ||
-      header.count > RunDump::capacity ||
+      !RunDump::supported_format(header) ||
       file.size() != sizeof(header) + header.count * header.record_size)
     return false;
 
@@ -248,8 +245,9 @@ void RunRecorder::serial_step() {
     return;
   }
   RunDump::Record record;
-  if (export_file.read(reinterpret_cast<uint8_t *>(&record), sizeof(record)) !=
-      sizeof(record)) {
+  uint8_t raw[sizeof(record)];
+  if (export_file.read(raw, latest.record_size) != latest.record_size ||
+      !RunDump::decode_record(raw, latest, record)) {
     serial_export = false;
     export_file.close();
     status("read failed; export incomplete");
@@ -314,14 +312,14 @@ void RunRecorder::radio_step(NowPair &link) {
       std::memcpy(radio_buffer + radio_size, &latest, sizeof(latest));
       radio_size += sizeof(latest);
     } else if (!sending_end) {
-      if (export_file.read(radio_buffer + radio_size, sizeof(RunDump::Record)) !=
-          sizeof(RunDump::Record)) {
+      if (export_file.read(radio_buffer + radio_size, latest.record_size) !=
+          latest.record_size) {
         radio_export = false;
         export_file.close();
         status("radio export read failed");
         return;
       }
-      radio_size += sizeof(RunDump::Record);
+      radio_size += latest.record_size;
     }
     waiting_ack = true;
     // Permit the first transmission immediately, including after clock wrap.

@@ -80,5 +80,42 @@ class PlotDumpTests(unittest.TestCase):
             plot_dump.load(self.path)
 
 
+    def test_version_two_binary_layout(self):
+        values = dict.fromkeys(plot_dump.BINARY_FIELDS, 0)
+        values.update(timestamp_us=10000, received_us=10050, kind=2,
+                      target_rpm=2500, rssi_rpm=2450, fast_rpm=2450, long_rpm=2400,
+                      correlation=.9, comparison_samples=72, min_lag=18, max_lag=31)
+        payload = plot_dump.RECORD.pack(*values.values())
+        self.assertEqual(len(payload), 80)
+        self.path.write_bytes(struct.pack("<8I", 0x31524442, 2, 1, 1, 80,
+                                          zlib.crc32(payload), 0, 0) + payload)
+        row = plot_dump.load(self.path)[0].rows[0]
+        self.assertEqual(row["target_rpm"], 2500)
+        self.assertEqual(row["fast_rpm"], 2450)
+        self.assertEqual(row["comparison_samples"], 72)
+        self.assertNotIn("accel_rpm", row)
+
+    def test_interactive_cursor_updates_correlation(self):
+        import math
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        rows = []
+        for t in range(0, 1000000, 1000):
+            rows.append(dict(kind=1, timestamp_us=t, received_us=t,
+                             rssi_dbm=round(-64 + 10 * math.sin(t * 2 * math.pi / 20000))))
+            if t % 10000 == 0:
+                rows.append(dict(kind=2, timestamp_us=t, received_us=t, rssi_rpm=3000,
+                                 throttle=.44, analysis_timestamp_us=t,
+                                 comparison_samples=60, min_lag=15, max_lag=25))
+        figure = plot_dump.plot([("capture", plot_dump.Dump(rows))], selected_time=.8)
+        self.addCleanup(plt.close, figure)
+        inspector = figure._dump_inspector
+        inspector.slider.set_val(.9)
+        self.assertEqual(inspector.cursors[0].get_xdata(), [.9, .9])
+        self.assertTrue(any("tracking" in line.get_label()
+                            for line in inspector.curve_axis.lines))
+
+
 if __name__ == "__main__":
     unittest.main()

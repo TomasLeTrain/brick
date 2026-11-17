@@ -17,13 +17,6 @@
 #define HEARTBEAT_MS 50
 #define TIMEOUT_MS 250
 
-// // ------------ Spin control settings ----------------
-// #define ACCELEROMETER_HARDWARE_RADIUS_CM 4.668f
-#define ACCELEROMETER_HARDWARE_RADIUS_CM 4.846f
-
-// Compare both estimates on Serial before opting into RSSI for drive control.
-constexpr bool USE_RSSI_RPM_FOR_CONTROL = false;
-
 // Optional active-low snapshot button. Connect the chosen free GPIO to GND.
 constexpr int DUMP_BUTTON_PIN = -1;
 

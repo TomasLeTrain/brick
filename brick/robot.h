@@ -5,7 +5,7 @@
 #include "src/subsystems/comms.h"
 #include "src/subsystems/led.h"
 #include "src/subsystems/melt.h"
-#include "src/subsystems/rpm_estimator.h"
+#include "src/subsystems/accelerometer.h"
 
 enum ConnectionState {
   NetworkDisconnect,
@@ -34,7 +34,6 @@ private:
   AlfredoDShot left_motor;
   AlfredoDShot right_motor;
 
-  RpmEstimator rpm_estimator;
   Accelerometer accel;
 
   LED leds;

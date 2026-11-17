@@ -13,16 +13,21 @@ import warnings
 import zlib
 
 HEADER = struct.Struct("<8I")
-RECORD = struct.Struct("<II8fIIIhBB")
+RECORD_V1 = struct.Struct("<II8fIIIhBB")
+RECORD = struct.Struct("<II8fIIIhBB3fI3H2B")
 BINARY_FIELDS = (
-    "timestamp_us", "received_us", "ax_g", "ay_g", "az_g", "accel_rpm",
+    "timestamp_us", "received_us", "ax_g", "ay_g", "az_g", "target_rpm",
     "rssi_rpm", "control_rpm", "rssi_hz", "throttle", "estimator_us",
     "rx_dropped", "rssi_dropped", "rssi_dbm", "kind", "connected",
+    "fast_rpm", "long_rpm", "correlation", "analysis_timestamp_us",
+    "comparison_samples", "min_lag", "max_lag", "tracking_mode", "hint_used",
 )
+BINARY_FIELDS_V1 = BINARY_FIELDS[:5] + ("accel_rpm",) + BINARY_FIELDS[6:16]
 ALIASES = {"rssi": "rssi_dbm", "timestamp": "timestamp_us"}
 PANELS = (
     ("RSSI (dBm)", ("rssi_dbm",)),
-    ("RPM", ("accel_rpm", "rssi_rpm", "control_rpm", "true_rpm")),
+    ("RPM", ("rssi_rpm", "fast_rpm", "long_rpm", "target_rpm", "true_rpm")),
+    ("Motor throttle", ("throttle",)),
     ("Acceleration (g)", ("ax_g", "ay_g", "az_g")),
     ("Estimator update (µs)", ("estimator_us",)),
     ("Packets/s", ("rssi_hz",)),
@@ -42,14 +47,16 @@ def read_binary(path):
     magic, version, generation, count, record_size, crc, overwritten, paused = (
         HEADER.unpack_from(data)
     )
-    if magic != 0x31524442 or version != 1 or record_size != RECORD.size:
+    record = RECORD_V1 if version == 1 else RECORD
+    fields = BINARY_FIELDS_V1 if version == 1 else BINARY_FIELDS
+    if magic != 0x31524442 or version not in (1, 2) or record_size != record.size:
         raise ValueError("unsupported binary dump format")
     payload = data[HEADER.size:]
-    if count > 2048 or len(payload) != count * RECORD.size:
+    if count > 2048 or len(payload) != count * record.size:
         raise ValueError("truncated binary dump or invalid record count")
     if zlib.crc32(payload) != crc:
         raise ValueError("binary dump CRC mismatch")
-    rows = [dict(zip(BINARY_FIELDS, values)) for values in RECORD.iter_unpack(payload)]
+    rows = [dict(zip(fields, values)) for values in record.iter_unpack(payload)]
     return [Dump(rows, f"generation={generation} overwritten={overwritten} paused={paused}")]
 
 
@@ -177,18 +184,97 @@ def times(rows):
     return [(value - origin) / 1e6 for value in aligned]
 
 
-def plot(dumps, start=None, end=None):
+class DumpInspector:
+    def __init__(self, figure, axes, curve_axis, slider, dumps, initial_time):
+        from bisect import bisect_right
+        self.figure = figure
+        self.axes = axes
+        self.curve_axis = curve_axis
+        self.slider = slider
+        self.dumps = [(label, dump, times(dump.rows)) for label, dump in dumps]
+        self.bisect_right = bisect_right
+        self.cursors = [axis.axvline(initial_time, color="black", alpha=.5)
+                        for axis in axes]
+        slider.on_changed(self.select)
+        figure.canvas.mpl_connect("button_press_event", self.click)
+        self.select(initial_time)
+
+    def click(self, event):
+        if event.inaxes in self.axes and event.xdata is not None:
+            # Toolbar zoom/pan retains its normal mouse behavior.
+            toolbar = getattr(self.figure.canvas.manager, "toolbar", None)
+            if toolbar is None or not toolbar.mode:
+                self.slider.set_val(max(self.slider.valmin,
+                                        min(self.slider.valmax, event.xdata)))
+
+    def select(self, selected_time):
+        from rssi_correlation import grid_at, correlation_curve
+        import numpy as np
+
+        axis = self.curve_axis
+        axis.clear()
+        for cursor in self.cursors:
+            cursor.set_xdata([selected_time, selected_time])
+        notes = []
+        for label, dump, clock in self.dumps:
+            display = label + " " if len(self.dumps) > 1 else ""
+            state_indices = [i for i, row in enumerate(dump.rows)
+                             if row.get("kind", 0) != 1 and clock[i] <= selected_time]
+            # Raw RSSI-only reference captures also support curve inspection.
+            index = state_indices[-1] if state_indices else max(
+                0, self.bisect_right(clock, selected_time) - 1)
+            row = dump.rows[index]
+            grid = grid_at(dump.rows, index)
+            samples = int(row.get("comparison_samples", 0)) or 250
+            first = int(row.get("min_lag", 0)) or 9
+            last = int(row.get("max_lag", 0)) or 155
+            for name, n, lo, hi in (("tracking", samples, first, last),
+                                    ("long", 250, 9, 155)):
+                if name == "long" and (samples, first, last) == (250, 9, 155):
+                    continue
+                curve = correlation_curve(grid, n, lo, hi)
+                if np.isfinite(curve).any():
+                    axis.plot(np.arange(len(curve)), curve,
+                              label=f"{display}{name} ({n} ms)")
+                else:
+                    notes.append(f"{label} {name}: insufficient history/variance")
+            rpm = row.get("rssi_rpm", 0)
+            if rpm > 0:
+                axis.axvline(60000 / rpm, linestyle="--",
+                             label=f"{display}used {rpm:.0f} RPM")
+            prior = row.get("target_rpm", 0)
+            if prior > 0:
+                axis.axvline(60000 / prior, linestyle=":", alpha=.6,
+                             label=f"{display}steady prior {prior:.0f} RPM")
+        axis.set(xlabel="Lag (ms)", ylabel="Normalized correlation",
+                 title=f"Latest analysis at cursor {selected_time:.3f} s",
+                 xlim=(8, 156), ylim=(-1.05, 1.05))
+        axis.grid(alpha=.25)
+        if axis.lines:
+            axis.legend(loc="upper right", fontsize=8)
+        if notes:
+            axis.text(.02, .02, "\n".join(notes), transform=axis.transAxes, fontsize=8)
+        self.figure.canvas.draw_idle()
+
+
+def plot(dumps, start=None, end=None, selected_time=None):
     import matplotlib.pyplot as plt
+    from matplotlib.widgets import Slider
 
     available = {field for _, dump in dumps for row in dump.rows for field in row}
     panels = [(label, fields) for label, fields in PANELS if available.intersection(fields)]
     if not panels:
         raise ValueError("no supported RSSI, RPM, acceleration or timing columns")
-    figure, axes = plt.subplots(len(panels), 1, sharex=True, squeeze=False,
-                                figsize=(12, 2.3 * len(panels)), layout="constrained")
-    for label, dump in dumps:
-        clock = times(dump.rows)
-        for axis, (ylabel, fields) in zip(axes[:, 0], panels):
+    figure = plt.figure(figsize=(15, max(8, len(panels) * 1.55)))
+    grid = figure.add_gridspec(len(panels), 2, width_ratios=(1.6, 1),
+                              left=.07, right=.98, top=.96, bottom=.11,
+                              hspace=.25, wspace=.22)
+    axes = []
+    for i, (ylabel, fields) in enumerate(panels):
+        axis = figure.add_subplot(grid[i, 0], sharex=axes[0] if axes else None)
+        axes.append(axis)
+        for label, dump in dumps:
+            clock = times(dump.rows)
             for field in fields:
                 points = []
                 for t, row in zip(clock, dump.rows):
@@ -203,13 +289,23 @@ def plot(dumps, start=None, end=None):
                         points.append((t, value))
                 if points:
                     x, y = zip(*points)
-                    axis.plot(x, y, linewidth=0.8, label=f"{label} {field}")
-            axis.set_ylabel(ylabel)
-            axis.grid(alpha=0.25)
-    for axis in axes[:, 0]:
+                    axis.plot(x, y, linewidth=.8, label=f"{label} {field}" if len(dumps) > 1 else field)
+        axis.set_ylabel(ylabel)
+        axis.grid(alpha=.25)
         if axis.lines:
-            axis.legend(loc="upper right", fontsize=8)
-    axes[-1, 0].set_xlabel("Time from first captured sample (s)")
+            axis.legend(loc="upper right", fontsize=7, ncol=2)
+        if i < len(panels) - 1:
+            axis.tick_params(labelbottom=False)
+    axes[-1].set_xlabel("Time from first captured sample (s)")
+    lower = start if start is not None else 0
+    upper = end if end is not None else max(max(times(d.rows)) for _, d in dumps)
+    upper = max(lower + .001, upper)
+    axes[0].set_xlim(lower, upper)
+    initial = max(lower, min(upper, selected_time if selected_time is not None else upper))
+    curve_axis = figure.add_subplot(grid[:, 1])
+    slider = Slider(figure.add_axes((.15, .035, .65, .025)), "Time (s)",
+                    lower, upper, valinit=initial)
+    figure._dump_inspector = DumpInspector(figure, axes, curve_axis, slider, dumps, initial)
     return figure
 
 
@@ -219,6 +315,7 @@ def main():
     parser.add_argument("--run", type=int, default=-1, help="run index within each file, default last")
     parser.add_argument("--start", type=float, help="first plotted second")
     parser.add_argument("--end", type=float, help="last plotted second")
+    parser.add_argument("--time", type=float, help="initial correlation cursor time in seconds")
     parser.add_argument("--save", type=Path, help="save a PNG, PDF or SVG instead of opening a window")
     parser.add_argument("--allow-incomplete", action="store_true", help="plot partial serial exports")
     args = parser.parse_args()
@@ -240,7 +337,7 @@ def main():
         if args.save:
             import matplotlib
             matplotlib.use("Agg")
-        figure = plot(selected, args.start, args.end)
+        figure = plot(selected, args.start, args.end, args.time)
         if args.save:
             figure.savefig(args.save, dpi=160)
         else:

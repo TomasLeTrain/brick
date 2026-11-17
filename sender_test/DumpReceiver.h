@@ -22,10 +22,7 @@ public:
         length == RunDump::prefix_size + sizeof(RunDump::Header)) {
       RunDump::Header header;
       std::memcpy(&header, data + RunDump::prefix_size, sizeof(header));
-      if (header.magic_value != RunDump::magic ||
-          header.format_version != RunDump::version ||
-          header.record_size != sizeof(RunDump::Record) ||
-          header.count > RunDump::capacity)
+      if (!RunDump::supported_format(header))
         return true;
       if (!have_session || session != incoming_session) {
         session = incoming_session;
@@ -44,12 +41,13 @@ public:
       acknowledge(RunDump::begin_index);
     } else if (have_session && session == incoming_session) {
       if (type == RunDump::Message::Record &&
-          length == RunDump::prefix_size + sizeof(RunDump::Record)) {
+          length == RunDump::prefix_size + expected.record_size) {
         if (active && index == next && next < expected.count) {
           RunDump::Record record;
-          std::memcpy(&record, data + RunDump::prefix_size, sizeof(record));
-          checksum = RunDump::crc32(checksum, &record, sizeof(record));
-          char line[256];
+          RunDump::decode_record(data + RunDump::prefix_size, expected, record);
+          checksum = RunDump::crc32(checksum, data + RunDump::prefix_size,
+                                   expected.record_size);
+          char line[512];
           RunDump::csv_record(line, sizeof(line), record);
           Serial.print(line);
           ++next;

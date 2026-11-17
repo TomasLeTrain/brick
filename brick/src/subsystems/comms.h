@@ -11,6 +11,7 @@ public:
   bool send(TelemetryPacket *packet);
   bool begin();
   void update();
+  void update_rpm(float throttle, float steady_rpm);
   bool connected() const { return peer_link.connected(); }
 
   ThrottlePacket *get_throttle_packet() { return &current_throttle; }

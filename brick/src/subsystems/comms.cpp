@@ -57,8 +57,12 @@ void Comms::update() {
   const uint32_t now_ms = millis();
   if (now_ms - last_throttle_ms >= throttle_timeout_ms)
     current_throttle.connected = false;
-  const uint32_t started_us = micros();
-  rssi_estimator.update(now_ms);
-  estimator_us = micros() - started_us;
   recorder.update(peer_link);
+}
+
+void Comms::update_rpm(float throttle, float steady_rpm) {
+  const uint32_t started_us = micros();
+  rssi_estimator.set_drive_hint(throttle, steady_rpm, millis());
+  rssi_estimator.update(millis());
+  estimator_us = micros() - started_us;
 }

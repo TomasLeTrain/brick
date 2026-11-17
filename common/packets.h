@@ -11,7 +11,7 @@ struct TelemetryPacket {
   int16_t a_z;
 
   float rpm;
-  float radius;
+  float radius; // Reserved legacy slot, zero with RSSI RPM.
   int32_t micros_timestamp;
 
   bool deserialize(const uint8_t *data, size_t length);

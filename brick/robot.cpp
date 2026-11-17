@@ -10,9 +10,6 @@ void Robot::begin() {
   // TODO: check for any begin errors and report with leds
   leds.set_brightness(30);
 
-  rpm_estimator.set_radius(ACCELEROMETER_HARDWARE_RADIUS_CM);
-  rpm_estimator.set_alpha(0.5);
-
   left_motor.begin(LEFT_MOTOR_PIN, DSHOT600, false, 14);
   right_motor.begin(RIGHT_MOTOR_PIN, DSHOT600, false, 14);
 
@@ -115,21 +112,19 @@ void Robot::general_update() {
     connected = ConnectionState::Ready;
   }
 
-  if (connected == ConnectionState::Ready) {
-    // [-0.5,0.5]
-    float radius_changer = (throttle_packet->knob_left / 1000.0) - 0.5;
-    // [-0.5,0.5]
-    radius_changer *= 0.5 * 2;
-
-    rpm_estimator.set_radius(ACCELEROMETER_HARDWARE_RADIUS_CM + radius_changer);
-  }
-
-  rpm_estimator.update(x, y);
-  const float accel_rpm = rpm_estimator.get_estimated_rpm();
+  const auto &config = *melt.get_config();
+  const float requested_speed = throttle_packet->left_ud / 1000.0f;
+  const float target_rpm = requested_speed * config.max_target_rpm;
+  const float spin_throttle =
+      connected == ConnectionState::Ready &&
+      requested_speed >= config.target_rpm_control_deadzone
+          ? std::min(target_rpm * RPM_THROTTLE_FEEDFORWARD,
+                     config.melt_max_throttle_magnitude) : 0;
+  const float steady_rpm = spin_throttle / RPM_THROTTLE_FEEDFORWARD;
+  comms.update_rpm(spin_throttle, steady_rpm);
   const auto &rssi_estimator = comms.get_rssi_estimator();
-  const float rssi_rpm = rssi_estimator.rpm();
-  const float curr_rpm =
-      USE_RSSI_RPM_FOR_CONTROL && rssi_rpm > 0 ? rssi_rpm : accel_rpm;
+  const auto &diagnostic = rssi_estimator.diagnostics();
+  const float curr_rpm = rssi_estimator.rpm();
 
   RunDump::Record sample{};
   sample.timestamp_us = accel_measurement_micros;
@@ -137,11 +132,20 @@ void Robot::general_update() {
   sample.ax_g = x;
   sample.ay_g = y;
   sample.az_g = z;
-  sample.accel_rpm = accel_rpm;
-  sample.rssi_rpm = rssi_rpm;
+  sample.target_rpm = steady_rpm;
+  sample.rssi_rpm = curr_rpm;
   sample.control_rpm = curr_rpm;
   sample.rssi_hz = rssi_estimator.sample_rate_hz();
-  sample.throttle = throttle_packet->left_ud / 1000.0f;
+  sample.throttle = spin_throttle;
+  sample.fast_rpm = diagnostic.fast_rpm;
+  sample.long_rpm = diagnostic.long_rpm;
+  sample.correlation = diagnostic.correlation;
+  sample.analysis_timestamp_us = diagnostic.timestamp_us;
+  sample.comparison_samples = diagnostic.comparison_samples;
+  sample.min_lag = diagnostic.min_lag;
+  sample.max_lag = diagnostic.max_lag;
+  sample.tracking_mode = diagnostic.mode;
+  sample.hint_used = diagnostic.hint_used;
   sample.estimator_us = comms.estimator_time_us();
   sample.rx_dropped = comms.dropped_rx();
   sample.rssi_dropped = comms.dropped_rssi();
@@ -220,9 +224,10 @@ void Robot::general_update() {
       //               throttle_packet->right_lr, throttle_packet->right_ud,
       //               throttle_packet->knob_left, throttle_packet->knob_right,
       //               throttle_packet->connected);
-      Serial.printf("x:%1.3f,y:%.3f,z:%.3f,accel_rpm:%.1f,rssi_rpm:%.1f,"
-                    "rssi_hz:%.0f\n",
-                    x, y, z, accel_rpm, rssi_rpm,
+      Serial.printf("x:%.3f,y:%.3f,z:%.3f,rpm:%.1f,fast_rpm:%.1f,"
+                    "long_rpm:%.1f,throttle:%.3f,rssi_hz:%.0f\n",
+                    x, y, z, curr_rpm, diagnostic.fast_rpm,
+                    diagnostic.long_rpm, spin_throttle,
                     rssi_estimator.sample_rate_hz());
       lastMessage = millis();
     }
@@ -237,7 +242,7 @@ void Robot::general_update() {
   telemetry_packet.a_y = raw_y;
   telemetry_packet.a_z = raw_z;
   telemetry_packet.rpm = curr_rpm;
-  telemetry_packet.radius = rpm_estimator.get_radius();
+  telemetry_packet.radius = 0; // Reserved legacy telemetry slot.
   telemetry_packet.micros_timestamp = accel_measurement_micros;
 
   comms.send(&telemetry_packet);

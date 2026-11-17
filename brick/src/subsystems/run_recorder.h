@@ -39,7 +39,7 @@ private:
   fs::File save_file, export_file;
   uint32_t export_index = 0, session = 0, last_send_ms = 0;
   bool waiting_ack = false, sending_begin = false, sending_end = false;
-  char serial_buffer[256];
+  char serial_buffer[512];
   size_t serial_size = 0, serial_position = 0;
   uint8_t radio_buffer[NowPair::MAX_PAYLOAD];
   size_t radio_size = 0;
