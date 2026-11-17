@@ -25,5 +25,8 @@
 #define KP 0.0f
 #define KI 0.0f
 #define RPM_THROTTLE_FEEDFORWARD (1.f / 6784.08434167f)
+// using throttle with bidirectional while issues get figured out, feedforward needs to get scaled accordingly
+// #define RPM_THROTTLE_FEEDFORWARD (2.f / 6784.08434167f)
+
 // max +-0.05 throttle correction from integral
 #define MAX_INTEGRAL 0.05f

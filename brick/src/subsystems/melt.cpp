@@ -124,7 +124,7 @@ void Melt::general_update() {
   } else if (active_drive_type == DriveType::Tank) {
     // deadzones
     float linear = input.vx;
-    float angular = input.turn_control;
+    float angular = input.vy;
 
     if (fabsf(linear) < config.tank_deadzone)
       linear = 0;

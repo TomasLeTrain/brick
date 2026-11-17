@@ -81,7 +81,7 @@ public:
   //   0            stop
   //   48..1047     reverse, slowest to fastest
   //   1048..2047   forward, slowest to fastest
-  bool sendThrottle3D(float throttle);
+  bool sendThrottle3D(float pct);
 
   // AM32 needs ~1 s of unbroken zero throttle before it arms, and any
   // non-zero value restarts its timer. send() quietly forces zero until that

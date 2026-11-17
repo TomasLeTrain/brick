@@ -72,7 +72,7 @@ struct MeltConfig {
 
   // deadzone for driving/turning in tank
   // on range [0, 1]
-  float tank_deadzone = 0.1;
+  float tank_deadzone = 0.3;
 
   // max throttle applied to either motor when melting
   // caps out motors to prevent case where they go full speed
@@ -80,8 +80,8 @@ struct MeltConfig {
   float melt_max_throttle_magnitude = 0.6;
 
   // max linear/angular powers for tank
-  float tank_linear_max_mag = 0.1;
-  float tank_angular_max_mag = 0.1;
+  float tank_linear_max_mag = 0.03;
+  float tank_angular_max_mag = 0.01;
   // no motor moves faster than this amount in tank
   float tank_max_motor_mag = 0.2;
 

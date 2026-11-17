@@ -54,6 +54,11 @@ private:
   int command = 0;
 
   // buffer of last z accel values to determine if bot is upright or not
-  float z_accel_queue[5];
+  float z_accel_queue[40];
   size_t z_accel_position = 0;
+
+  uint32_t different_upright_time_msec = 0;
+  bool last_upright = false;
+
+  uint32_t upright_time_threshold = 400;
 };

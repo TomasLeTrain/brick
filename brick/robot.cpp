@@ -155,9 +155,22 @@ void Robot::general_update() {
     melt_input->manual_drive_type = DriveType::Melting;
     melt_input->auto_drive_type = true;
 
-    // TODO: figure out sign
-    Serial.printf("avg z: %.3f\n", get_average_z_accel());
-    melt_input->is_upright = get_average_z_accel() >= 0;
+    // Serial.printf("avg z: %.3f\n", get_average_z_accel());
+    // melt_input->is_upright = get_average_z_accel() >= 0;
+    bool curr_upright = get_average_z_accel() >= -1.0;
+
+    if (curr_upright != last_upright) {
+      different_upright_time_msec += 10;
+      if (different_upright_time_msec > upright_time_threshold) {
+        last_upright = curr_upright;
+        different_upright_time_msec = 0;
+      }
+    } else {
+      different_upright_time_msec = 0;
+    }
+
+    melt_input->is_upright = last_upright;
+    // melt_input->is_upright = true;
 
     melt.general_update();
   } else {
@@ -216,13 +229,22 @@ void Robot::motor_update() {
     leds.leds_on_array(output->led_red, output->led_green, output->led_blue);
 
     // if power low enough just break
-    if (fabs(output->left_power) < 0.01 && fabs(output->right_power) < 0.01) {
+    if (fabs(output->left_power) < 0.0001 &&
+        fabs(output->right_power) < 0.0001) {
       left_motor.send(0);
       right_motor.send(0);
     } else {
-      left_motor.sendThrottle3D(output->left_power);
-      right_motor.sendThrottle3D(output->right_power);
+      // left_motor.sendThrottle(output->left_power);
+      // right_motor.sendThrottle(output->right_power);
+      left_motor.sendThrottle3D(-output->left_power * 100.f);
+      right_motor.sendThrottle3D(-output->right_power * 100.f);
     }
+    //
+    // left_motor.sendThrottle3D(output->left_power);
+    // right_motor.sendThrottle3D(output->right_power);
+
+    // left_motor.sendThrottle(output->left_power);
+    // right_motor.sendThrottle(output->right_power);
   } else {
     // stop the motors unless strictly good for spinning
     left_motor.send(0);
@@ -235,6 +257,7 @@ void Robot::motor_update() {
 
 void Robot::update_z_buffer(float z_accel) {
   z_accel_queue[z_accel_position] = z_accel;
+
   constexpr size_t num_elements =
       sizeof(z_accel_queue) / sizeof(z_accel_queue[0]);
   z_accel_position = (z_accel_position + 1) % num_elements;
