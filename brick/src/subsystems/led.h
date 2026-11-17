@@ -23,6 +23,7 @@ public:
   void leds_on_low_battery();
   void leds_on_controller_stale();
   void leds_on_no_controller();
+  void leds_on_switch_off();
 
   void leds_on_gradient(uint8_t color);
   void leds_off();

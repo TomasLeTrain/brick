@@ -18,9 +18,12 @@
 // #define ACCELEROMETER_HARDWARE_RADIUS_CM 4.668f
 #define ACCELEROMETER_HARDWARE_RADIUS_CM 4.846f
 
+// found from testing
+#define LED_SHIFT -0.15
+
 // look in pid.h for explanation of these values
 #define KP 0.0f
 #define KI 0.0f
-#define RPM_THROTTLE_FEEDFORWARD (1 / 4.07f)
-// max +-0.1 throttle correction from integral
-#define MAX_INTEGRAL 0.1f
+#define RPM_THROTTLE_FEEDFORWARD (1.f / 6784.08434167f)
+// max +-0.05 throttle correction from integral
+#define MAX_INTEGRAL 0.05f

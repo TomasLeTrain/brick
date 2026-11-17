@@ -26,6 +26,11 @@ public:
   // blocking
   void arming_sequence();
 
+private:
+  // TODO: move to separate class?
+  void update_z_buffer(float z_accel);
+  float get_average_z_accel();
+
   AlfredoDShot left_motor;
   AlfredoDShot right_motor;
 
@@ -45,12 +50,10 @@ public:
 
   bool accel_disconnected = true;
 
-  float throttle = 0.1;
+  // used for arming
   int command = 0;
-
-  float tank_linear = 0;
-  float tank_angular = 0;
 
   // buffer of last z accel values to determine if bot is upright or not
   float z_accel_queue[5];
+  size_t z_accel_position = 0;
 };

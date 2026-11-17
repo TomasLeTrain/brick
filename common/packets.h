@@ -36,8 +36,8 @@ inline size_t TelemetryPacket::serialize(uint8_t *buffer) {
   buffer[6] = ser_rpm & 0xff;
   buffer[7] = (ser_rpm >> 8) & 0xff;
 
-  // NOTE: assumes max possible radius is 7
-  int16_t ser_radius = (radius * 2047) / 7.f;
+  // NOTE: assumes max possible radius is 6
+  int16_t ser_radius = (radius * 2047) / 6.f;
   buffer[8] = ser_radius & 0xff;
   buffer[9] = (ser_radius >> 8) & 0xff;
 
@@ -60,7 +60,7 @@ inline bool TelemetryPacket::deserialize(const uint8_t *data, size_t length) {
   int16_t ser_rpm = data[6] | (data[7] << 8);
   rpm = (ser_rpm * 4000.f) / 2047.f;
   int16_t ser_radius = data[8] | (data[9] << 8);
-  radius = (ser_radius * 7.f) / 2047.f;
+  radius = (ser_radius * 6.f) / 2047.f;
 
   micros_timestamp =
       data[10] | (data[11] << 8) | (data[12] << 16) | (data[13] << 24);

@@ -112,6 +112,16 @@ void LED::leds_on_no_controller() {
   }
 }
 
+void LED::leds_on_switch_off() {
+  long now = millis();
+  now /= 100;
+  if ((now % 10) < 5) {
+    leds_on_rgb(0, 255, 0);
+  } else {
+    leds_off();
+  }
+}
+
 void LED::leds_on_gradient(uint8_t color) {
   uint8_t green = (color > 50) ? 255 : (255 * int(color)) / 50;
   uint8_t red = (color < 50) ? 255 : (255 * (100 - int(color))) / 50;

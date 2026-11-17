@@ -291,7 +291,7 @@ bool AlfredoDShot::sendThrottle(float throttle) {
 
 // impl taken from
 // https://github.com/AlfredoSystems/AlfredoDShot/blob/df57e744ef710cd95afe9fe52f277eb3fa28cbb1/examples/Rotini_V4_Telemetry/Rotini_V4_Telemetry.ino#L90
-bool AlfredoDShot::sendThrottle3D(float throttle) {
+bool AlfredoDShot::sendThrottle3D(float pct) {
   if (!(fabsf(pct) > 0))
     return 0; // also catches NaN
   uint16_t steps = (uint16_t)(min(fabsf(pct), 100.0f) * 9.99f + 0.5f); // 0..999

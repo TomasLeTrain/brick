@@ -47,8 +47,9 @@ void Robot::begin() {
     Serial.println("failed accel init!");
   }
 
-  // NOTE: if comms used within 800 msec if startup then a temporary disconnect
-  // can occur shouldn't cause an issue so no delay is added here init comms
+  // NOTE: if comms used within 800 msec if startup then a temporary
+  // disconnect can occur shouldn't cause an issue so no delay is added here
+  // init comms
   comms.begin();
   Serial.println("init comms");
 
@@ -57,6 +58,11 @@ void Robot::begin() {
   pid->setKi(KI);
   pid->setFeedforward(RPM_THROTTLE_FEEDFORWARD);
   pid->setMaxIntegral(MAX_INTEGRAL);
+
+  // init z accel queue
+  for (int i = 0; i < sizeof(z_accel_queue) / sizeof(z_accel_queue[0]); i++) {
+    z_accel_queue[i] = 0.0;
+  }
 }
 
 // blocking
@@ -90,6 +96,9 @@ void Robot::general_update() {
   uint16_t raw_y = accel.get_raw_y_accel();
   uint16_t raw_z = accel.get_raw_z_accel();
 
+  // update z accel buffer
+  update_z_buffer(z);
+
   ThrottlePacket *throttle_packet = comms.get_throttle_packet();
 
   if (!comms.connected()) {
@@ -99,14 +108,13 @@ void Robot::general_update() {
     connected = ConnectionState::ControllerDisconnect;
   } else if (accel_disconnected) {
     connected = ConnectionState::AccelDisconnect;
-    // TODO: add switch state
+  } else if (!throttle_packet->swa) {
+    connected = ConnectionState::SpinSwitchOff;
   } else {
     connected = ConnectionState::Ready;
   }
 
   if (connected == ConnectionState::Ready) {
-    // leds.set_brightness((throttle_packet->left_ud * 20) / 1000);
-
     // [-0.5,0.5]
     float radius_changer = (throttle_packet->knob_left / 1000.0) - 0.5;
     // [-0.5,0.5]
@@ -119,22 +127,6 @@ void Robot::general_update() {
   float curr_rpm = rpm_estimator.get_estimated_rpm();
 
   if (connected == ConnectionState::Ready) {
-    // leds.set_brightness((throttle_packet->left_ud * 20) / 1000);
-
-    if (throttle_packet->swa != last_switch_position) {
-      Serial.println("dumping");
-      comms.dump_rssi();
-      last_switch_position = throttle_packet->swa;
-    }
-
-    // [-0.5,0.5]
-    float radius_changer = (throttle_packet->knob_left / 1000.0) - 0.5;
-
-    // [-1.5,1.5] cm
-    radius_changer *= 3;
-
-    rpm_estimator.set_radius(ACCELEROMETER_HARDWARE_RADIUS_CM + radius_changer);
-
     // all in range [-0.5, 0.5]
     float vx = (throttle_packet->right_ud / 1000.0) - 0.5;
     float vy = (throttle_packet->right_lr / 1000.0) - 0.5;
@@ -142,42 +134,30 @@ void Robot::general_update() {
 
     // in range [0,1]
     float target_rpm_control = (throttle_packet->left_ud / 1000.0);
-    float led_shift_amount = (throttle_packet->knob_right / 1000.0);
+    // float led_shift_amount = (throttle_packet->knob_right / 1000.0);
 
     // convert to range [-1, 1]
     vx *= 2.0;
     vy *= 2.0;
     turn_control *= 2.0;
 
-    // in range of [-0.5,0.5]
-    tank_linear = (throttle_packet->left_ud / 1000.0) - 0.5;
-    tank_angular = (throttle_packet->right_lr / 1000.0) - 0.5;
-
-    // get in range of [-1,1]
-    tank_linear *= 2.0;
-    tank_angular *= 2.0;
-
-    const float MAX_TANK_MAG = 0.3;
-
-    // get in range [-MAX_TANK_MAG, MAX_TANK_MAG]
-    tank_linear *= MAX_TANK_MAG;
-    tank_angular *= MAX_TANK_MAG;
-
     MeltInput *melt_input = melt.get_input();
 
     melt_input->rpm = curr_rpm;
-    melt_input->drive_type = DriveType::Melting;
-
-    // all at zero for now
     melt_input->vx = vx;
     melt_input->vy = vy;
-    // melt_input->vy = 0;
     melt_input->turn_control = turn_control;
-    // melt_input->target_rpm_control = target_rpm_control;
-    // melt_input->vy = 0;
-    // melt_input->turn_control = 0;
     melt_input->target_rpm_control = target_rpm_control;
-    melt_input->led_shift_amount = led_shift_amount;
+    // melt_input->led_shift_amount = led_shift_amount;
+    melt_input->led_shift_amount = LED_SHIFT;
+
+    // auto drive type used, manual drive type is irrelevant
+    melt_input->manual_drive_type = DriveType::Melting;
+    melt_input->auto_drive_type = true;
+
+    // TODO: figure out sign
+    Serial.printf("avg z: %.3f\n", get_average_z_accel());
+    melt_input->is_upright = get_average_z_accel() >= 0;
 
     melt.general_update();
   } else {
@@ -188,11 +168,9 @@ void Robot::general_update() {
       leds.leds_on_controller_stale();
     } else if (connected == ConnectionState::AccelDisconnect) {
       leds.leds_on_rgb(0, 255, 0);
+    } else if (connected == ConnectionState::SpinSwitchOff) {
+      leds.leds_on_switch_off();
     }
-
-    // regardless, don't move at all
-    tank_angular = 0;
-    tank_linear = 0;
   }
 
   static uint32_t lastMessage = 0;
@@ -237,11 +215,14 @@ void Robot::motor_update() {
     const MeltOutput *output = melt.get_output();
     leds.leds_on_array(output->led_red, output->led_green, output->led_blue);
 
-    // don't use these values for now, keeping manual throttle for now
-    left_motor.sendThrottle(max(output->left_power, 0.0f));
-    right_motor.sendThrottle(max(output->right_power, 0.0f));
-    // left_motor.sendThrottle(max(tank_linear, 0.0f));
-    // right_motor.sendThrottle(max(tank_linear, 0.0f));
+    // if power low enough just break
+    if (fabs(output->left_power) < 0.01 && fabs(output->right_power) < 0.01) {
+      left_motor.send(0);
+      right_motor.send(0);
+    } else {
+      left_motor.sendThrottle3D(output->left_power);
+      right_motor.sendThrottle3D(output->right_power);
+    }
   } else {
     // stop the motors unless strictly good for spinning
     left_motor.send(0);
@@ -250,4 +231,23 @@ void Robot::motor_update() {
 
   // perform every msec
   vTaskDelay(1);
+}
+
+void Robot::update_z_buffer(float z_accel) {
+  z_accel_queue[z_accel_position] = z_accel;
+  constexpr size_t num_elements =
+      sizeof(z_accel_queue) / sizeof(z_accel_queue[0]);
+  z_accel_position = (z_accel_position + 1) % num_elements;
+}
+
+float Robot::get_average_z_accel() {
+  float avg = 0;
+  constexpr size_t num_elements =
+      sizeof(z_accel_queue) / sizeof(z_accel_queue[0]);
+
+  for (size_t i = 0; i < num_elements; i++) {
+    avg += z_accel_queue[i];
+  }
+
+  return avg / num_elements;
 }

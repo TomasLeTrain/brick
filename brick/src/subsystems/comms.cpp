@@ -34,7 +34,7 @@ void Comms::on_data(const uint8_t *data, size_t length, int rssiDbm,
 }
 
 void Comms::on_rssi(int rssiDbm, int rssiTimestamp) {
-  new_rssi_entry(rssiDbm, rssiTimestamp);
+  // new_rssi_entry(rssiDbm, rssiTimestamp);
 }
 
 bool Comms::send(TelemetryPacket *packet) {
@@ -63,40 +63,40 @@ void Comms::update() { peer_link->update(); }
 bool Comms::connected() { return peer_link->connected(); }
 
 void Comms::new_rssi_entry(int rssiDbm, int rssiTimestamp) {
-  if (rssiDbm == NowPair::RSSI_UNAVAILABLE || dumping_rssi)
-    return;
-
-  rssi[rssi_idx] = rssiDbm;
-  rssi_timestamps[rssi_idx] = rssiTimestamp;
-
-  rssi_idx = (rssi_idx + 1) % RSSI_QUEUE_SIZE;
-  if (rssi_capacity < RSSI_QUEUE_SIZE)
-    rssi_capacity++;
+  // if (rssiDbm == NowPair::RSSI_UNAVAILABLE || dumping_rssi)
+  //   return;
+  //
+  // rssi[rssi_idx] = rssiDbm;
+  // rssi_timestamps[rssi_idx] = rssiTimestamp;
+  //
+  // rssi_idx = (rssi_idx + 1) % RSSI_QUEUE_SIZE;
+  // if (rssi_capacity < RSSI_QUEUE_SIZE)
+  //   rssi_capacity++;
 }
 
-void Comms::dump_rssi() {
-  dumping_rssi = true;
+// void Comms::dump_rssi() {
+//   dumping_rssi = true;
+//
+//   const uint32_t NVM_Offset = 0x9000;
+//   uint32_t address = 0;
+//
+//   int total_len = sizeof(rssi) + sizeof(rssi_timestamps);
+//
+//   for (int sector = (NVM_Offset + address) / 4096;
+//        sector <= (NVM_Offset + address + total_len) / 4096; sector++) {
+//     ESP.flashEraseSector(sector);
+//   }
+//
+//   ESP.flashWrite(NVM_Offset + address, (uint32_t *)rssi, sizeof(rssi));
+//
+//   address += sizeof(rssi);
+//
+//   ESP.flashWrite(NVM_Offset + address, (uint32_t *)rssi_timestamps,
+//                  sizeof(rssi_timestamps));
+//
+//   dumping_rssi = false;
+// }
 
-  const uint32_t NVM_Offset = 0x9000;
-  uint32_t address = 0;
-
-  int total_len = sizeof(rssi) + sizeof(rssi_timestamps);
-
-  for (int sector = (NVM_Offset + address) / 4096;
-       sector <= (NVM_Offset + address + total_len) / 4096; sector++) {
-    ESP.flashEraseSector(sector);
-  }
-
-  ESP.flashWrite(NVM_Offset + address, (uint32_t *)rssi, sizeof(rssi));
-
-  address += sizeof(rssi);
-
-  ESP.flashWrite(NVM_Offset + address, (uint32_t *)rssi_timestamps,
-                 sizeof(rssi_timestamps));
-
-  dumping_rssi = false;
-}
-
-void Comms::print_dump() {
-  // TODO: impl
-}
+// void Comms::print_dump() {
+//   // TODO: impl
+// }

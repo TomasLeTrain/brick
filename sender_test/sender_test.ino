@@ -93,6 +93,8 @@ void loop() {
   // packet.swc = IBus.readChannel(4) - 1000;
   // packet.swd = IBus.readChannel(5) - 1000;
 
+  // Serial.printf("bruh: %d\n",packet.swa);
+
   // assume connected, updated later
   packet.connected = true;
 

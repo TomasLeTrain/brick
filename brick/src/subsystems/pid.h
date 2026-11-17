@@ -4,11 +4,7 @@
 class PID {
 public:
   PID() {}
-  void setTargetRPM(float target_rpm) {
-    _target_rpm = target_rpm;
-    // resets integral on movement change
-    integral = 0;
-  }
+  void setTargetRPM(float target_rpm) { _target_rpm = target_rpm; }
 
   void setFeedforward(float throttle_per_rpm) {
     this->_throttle_per_rpm = throttle_per_rpm;

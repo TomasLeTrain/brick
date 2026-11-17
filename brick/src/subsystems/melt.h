@@ -26,8 +26,12 @@ struct MeltInput {
   // amount of shift in the led movement
   float led_shift_amount;
 
-  // type of driving being used
-  DriveType drive_type;
+  // drive type used if auto_drive_type is off
+  DriveType manual_drive_type;
+
+  // if on, drive type is determined by melt throttle
+  // when melt throttle is below deadzone, tank mode is used
+  bool auto_drive_type;
 
   // whether robot is upright
   bool is_upright;
@@ -48,7 +52,7 @@ struct MeltOutput {
 
 struct MeltConfig {
   // the absolute max that is applied to motor for translation
-  // on range [-1,1]
+  // on range [0, 1]
   float max_translation_power = 0.1;
   TranslationMethod translation_method = TranslationMethod::Sine;
 
@@ -57,12 +61,23 @@ struct MeltConfig {
 
   float max_target_rpm = 3000;
 
+  // deadzone for translation vector magnitude
+  // if magnitude below this value then no translation occurs
+  // on range [0, 1]
   float melt_deadzone = 0.1;
+
+  // deadzone for turning
+  // on range [0, 1]
   float melt_turn_control_deadzone = 0.1;
+
+  // deadzone for driving/turning in tank
+  // on range [0, 1]
   float tank_deadzone = 0.1;
 
-  // max base throttle for spinning
-  float melt_max_throttle_magnitude = 0.3;
+  // max throttle applied to either motor when melting
+  // caps out motors to prevent case where they go full speed
+  // on range [0, 1]
+  float melt_max_throttle_magnitude = 0.6;
 
   // max linear/angular powers for tank
   float tank_linear_max_mag = 0.1;
@@ -75,6 +90,10 @@ struct MeltConfig {
 
   // rpm must reach above this to be considered melting
   float min_melting_rpm = 400;
+
+  // only apply target_rpm_control when its above this threshold
+  // on range [0, 1]
+  float target_rpm_control_deadzone = 0.1;
 };
 
 class Melt {
@@ -107,7 +126,7 @@ private:
   MeltOutput output;
   MeltConfig config;
 
-  PID throtte_pid = PID(0, 0);
+  PID throtte_pid;
 
   // below are values calculated by generated update
   uint32_t rotation_start_timestamp = 0;
@@ -140,4 +159,7 @@ private:
 
   // on when robot is spinning at a fast enough speed
   bool melting = false;
+
+  // drive type being used for update, as determined by inputs
+  DriveType active_drive_type;
 };

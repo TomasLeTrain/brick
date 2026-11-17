@@ -22,8 +22,8 @@ public:
   ThrottlePacket *get_throttle_packet() { return &current_throttle; }
   NowPair *get_link() { return peer_link; }
 
-  void dump_rssi();
-  void print_dump();
+  // void dump_rssi();
+  // void print_dump();
 
 private:
   static void dataCb(const uint8_t *data, size_t length, int rssiDbm,
@@ -42,10 +42,10 @@ private:
 
   ThrottlePacket current_throttle;
 
-  int rssi[RSSI_QUEUE_SIZE];
-  int rssi_timestamps[RSSI_QUEUE_SIZE];
-  int rssi_idx = 0;
-  int rssi_capacity = 0;
-
-  bool dumping_rssi = false;
+  // int rssi[RSSI_QUEUE_SIZE];
+  // int rssi_timestamps[RSSI_QUEUE_SIZE];
+  // int rssi_idx = 0;
+  // int rssi_capacity = 0;
+  //
+  // bool dumping_rssi = false;
 };
