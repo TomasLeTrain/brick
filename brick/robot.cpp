@@ -124,7 +124,11 @@ void Robot::general_update() {
   }
 
   rpm_estimator.update(x, y);
-  float curr_rpm = rpm_estimator.get_estimated_rpm();
+  const float accel_rpm = rpm_estimator.get_estimated_rpm();
+  const auto &rssi_estimator = comms.get_rssi_estimator();
+  const float rssi_rpm = rssi_estimator.rpm();
+  const float curr_rpm =
+      USE_RSSI_RPM_FOR_CONTROL && rssi_rpm > 0 ? rssi_rpm : accel_rpm;
 
   if (connected == ConnectionState::Ready) {
     // all in range [-0.5, 0.5]
@@ -196,7 +200,10 @@ void Robot::general_update() {
       //               throttle_packet->right_lr, throttle_packet->right_ud,
       //               throttle_packet->knob_left, throttle_packet->knob_right,
       //               throttle_packet->connected);
-      Serial.printf("x:%1.3f,y:%.3f,z:%.3f\n", x, y, z);
+      Serial.printf("x:%1.3f,y:%.3f,z:%.3f,accel_rpm:%.1f,rssi_rpm:%.1f,"
+                    "rssi_hz:%.0f\n",
+                    x, y, z, accel_rpm, rssi_rpm,
+                    rssi_estimator.sample_rate_hz());
       lastMessage = millis();
     }
   } else {
@@ -208,7 +215,7 @@ void Robot::general_update() {
   telemetry_packet.a_x = raw_x;
   telemetry_packet.a_y = raw_y;
   telemetry_packet.a_z = raw_z;
-  telemetry_packet.rpm = rpm_estimator.get_estimated_rpm();
+  telemetry_packet.rpm = curr_rpm;
   telemetry_packet.radius = rpm_estimator.get_radius();
   telemetry_packet.micros_timestamp = accel_measurement_micros;
 

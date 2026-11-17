@@ -1,3 +1,6 @@
+#ifndef BRICK_CONFIG_H
+#define BRICK_CONFIG_H
+
 // This file has all the hard-coded settings for Potatomelt
 
 #define NUM_LEDS 8
@@ -18,6 +21,9 @@
 // #define ACCELEROMETER_HARDWARE_RADIUS_CM 4.668f
 #define ACCELEROMETER_HARDWARE_RADIUS_CM 4.846f
 
+// Compare both estimates on Serial before opting into RSSI for drive control.
+constexpr bool USE_RSSI_RPM_FOR_CONTROL = false;
+
 // found from testing
 #define LED_SHIFT -0.15
 
@@ -30,3 +36,5 @@
 
 // max +-0.05 throttle correction from integral
 #define MAX_INTEGRAL 0.05f
+
+#endif

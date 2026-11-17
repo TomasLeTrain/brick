@@ -1,4 +1,4 @@
-#include <NowPair.h>
+#include "NowPair.h"
 #include "IBusBM.h"
 #include "../common/packets.h"
 
@@ -6,12 +6,10 @@
 #define TIMEOUT_MS 250
 
 NowPair peer_link(NowPair::Role::Master, 6, HEARTBEAT_MS, TIMEOUT_MS);
-bool peerConnected = false;
 
 IBusBM IBus;
 
 void connectionChanged(bool connected, void *arg) {
-  peerConnected = connected;
   Serial.println(connected ? "Slave connected" : "Slave disconnected");
 }
 
@@ -50,6 +48,12 @@ void setup() {
 
   peer_link.onConnectionChange(connectionChanged, NULL);
   peer_link.onData(received, NULL);
+  // Shorten unicast airtime so a frame can usually complete within one tick.
+  // Discovery broadcasts continue at the default rate.
+  const esp_now_rate_config_t tx_rate = {
+      WIFI_PHY_MODE_11G, WIFI_PHY_RATE_6M, false, false};
+  peer_link.setRate(&tx_rate);
+  peer_link.setRssiStreaming(true);
   if (!peer_link.begin()) {
     Serial.println("ESP-NOW initialization failed");
     while (true) delay(1000);
@@ -57,19 +61,27 @@ void setup() {
   Serial.println("Broadcasting discovery; waiting for slave...");
 }
 
-int last_cnt_rec_update = 0;
-int last_cnt_rec = 0;
+uint32_t last_cnt_rec_update = 0;
+uint8_t last_cnt_rec = 0;
 
 void loop() {
-  static uint8_t data_buffer[228];
-  ThrottlePacket packet;
-
-  // transmit at 1khz
-  int time_between_packets = 19;
-  digitalWrite(LED_BUILTIN, HIGH);
-
-  peer_link.update();  // Must run frequently, including while disconnected.
   IBus.loop();
+  sendThrottle();
+  // One ESP-NOW frame can start per tick. Empty RSSI frames fill the slots
+  // between throttle packets and heartbeat traffic.
+  peer_link.update();
+  vTaskDelay(1);
+}
+
+void sendThrottle() {
+  constexpr uint32_t throttle_interval_ms = 20;
+  static uint32_t last_send_ms = 0;
+  const uint32_t now_ms = millis();
+  if (!peer_link.connected() || now_ms - last_send_ms < throttle_interval_ms)
+    return;
+
+  digitalWrite(LED_BUILTIN, HIGH);
+  ThrottlePacket packet;
 
   // 0 - right, left-right
   // 1 - right, up-down
@@ -147,13 +159,8 @@ void loop() {
     curr_throttle = packet.left_ud;
   }
 
-  static uint32_t lastMessage = 0;
-
-  if (peer_link.connected() && uint32_t(millis() - lastMessage) >= time_between_packets) {
-    size_t n = packet.serialize(data_buffer);
-    if (peer_link.sendData(data_buffer, n)) lastMessage = millis();
-  } else {
-  }
-
-  delay(10);
+  uint8_t data_buffer[NowPair::MAX_PAYLOAD];
+  const size_t length = packet.serialize(data_buffer);
+  if (peer_link.sendData(data_buffer, length))
+    last_send_ms = now_ms;
 }

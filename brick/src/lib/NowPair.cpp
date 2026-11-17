@@ -107,8 +107,10 @@ void NowPair::enqueueRx(const uint8_t *mac, const uint8_t *data, size_t length,
     return;
   }
 
-  // Capture usable metadata independently of pairing and heartbeat state.
-  if (_collectRssi.load() && sample.rssiDbm != RSSI_UNAVAILABLE &&
+  // The peer address is immutable after bind() publishes it to this task.
+  // Keep other ESP-NOW senders out of the time series, including discovery.
+  if (_collectRssi.load() && _bound.load() &&
+      memcmp(addr(), mac, 6) == 0 && sample.rssiDbm != RSSI_UNAVAILABLE &&
       xQueueSend(_rssiRx, &sample, 0) != pdTRUE)
     _droppedRssi.fetch_add(1);
   if (kind == Kind::Rssi)
@@ -242,10 +244,12 @@ void NowPair::serviceTx() {
   if (_txBusy.load())
     return;
   Frame f;
-  // no packets to service
   if (xQueueReceive(_controlTx, &f, 0) != pdTRUE &&
-      xQueueReceive(_dataTx, &f, 0) != pdTRUE)
-    return;
+      xQueueReceive(_dataTx, &f, 0) != pdTRUE) {
+    if (!_streamRssi || !_connected)
+      return;
+    f = makeFrame(Kind::Rssi);
+  }
 
   const bool broadcast = f.kind == Kind::Discover;
 
