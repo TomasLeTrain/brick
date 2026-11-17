@@ -73,12 +73,32 @@ Alternatively send `s` over either board's serial connection. An optional
 active-low GPIO button can be selected with `DUMP_BUTTON_PIN` in
 `brick/config.h`. Leave it at `-1` to use SWB and serial commands.
 
-Use a partition scheme with a filesystem partition of at least 512 KiB. The
-recorder mounts LittleFS using the standard `spiffs` partition label. On a new
-or incompatible filesystem, send `f` directly to the robot with its spin switch
-off to format that partition. Formatting erases that filesystem's contents.
-The firmware reports a failed mount and continues operating until storage is
-initialized.
+A partition scheme divides the ESP32's flash into regions for firmware and
+persistent data. Select a scheme with at least 512 KiB reserved for a filesystem.
+In Arduino IDE, select your board and matching **Tools > Flash Size**, then
+choose an entry containing **SPIFFS** under **Tools > Partition Scheme**.
+For example, the ESP32-S3 Dev Module's default 4 MB scheme includes a filesystem
+partition. Upload the robot sketch again to install the selected partition table.
+With Arduino CLI, the corresponding board option is `PartitionScheme=default`,
+for example `esp32:esp32:esp32s3:CDCOnBoot=cdc,PartitionScheme=default`.
+
+The recorder mounts that region as LittleFS using the standard `spiffs`
+partition label. The **SPIFFS** menu label reserves a suitable region that this
+sketch uses for LittleFS. The firmware distinguishes a missing partition from an
+existing partition that fails to mount. Formatting initializes an existing
+partition. It cannot create a missing entry in the partition table.
+
+On a new or incompatible filesystem, turn the spin switch off and send lowercase
+`f` through either board's serial monitor at 115200 baud. In Arduino IDE,
+enter `f` in the Serial Monitor input and press Send/Enter. Formatting erases
+that filesystem's contents. The robot reports `formatting filesystem; please wait`
+and then `format complete; filesystem ready`, or an error. The sender forwards
+the final result. On startup, `filesystem ready; s saves recent history` confirms
+a successful mount. The firmware continues operating after a failed mount.
+
+Firmware versions before this fix only accept `f` on the robot's serial port
+and give no confirmation after a successful format. Update both sketches to
+use the sender's format command and the new diagnostics.
 
 Saving freezes capture and copies up to 16 events per general-update loop.
 Capture resumes after the save finishes, usually over a second for a full
@@ -95,7 +115,7 @@ evicted from the rolling buffer.
 | `s` | Save recent history | Request robot save |
 | `p` | Print saved CSV here | Request CSV on robot serial |
 | `e` | Export saved data over ESP-NOW | Request export, reconstruct and print CSV here |
-| `f` | Format filesystem with spin switch off | |
+| `f` | Format filesystem with spin switch off | Request robot format |
 
 Both CSV routes delimit a complete export with `# dump_begin` and
 `# dump_end`. Save that serial output as `run.csv`. Normal boot/status text can

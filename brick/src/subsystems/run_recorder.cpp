@@ -2,6 +2,7 @@
 #include "../../config.h"
 #include <LittleFS.h>
 #include <esp_system.h>
+#include <esp_partition.h>
 #include <algorithm>
 
 const char *RunRecorder::path(int slot) {
@@ -39,10 +40,16 @@ void RunRecorder::status(const char *text) {
 }
 
 void RunRecorder::mount() {
-  mounted = LittleFS.begin(false);
+  mounted = false;
   latest_slot = -1;
+  if (!esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
+                                ESP_PARTITION_SUBTYPE_ANY, "spiffs")) {
+    status("missing spiffs partition; select a Partition Scheme with SPIFFS and upload again");
+    return;
+  }
+  mounted = LittleFS.begin(false);
   if (!mounted) {
-    status("filesystem unavailable; choose a filesystem partition, then use f to format");
+    status("spiffs partition found, mount failed; send f to format (erases saved files)");
     return;
   }
   for (int slot = 0; slot < 2; ++slot) {
@@ -53,6 +60,7 @@ void RunRecorder::mount() {
       latest_slot = slot;
     }
   }
+  status("filesystem ready; s saves recent history");
 }
 
 void RunRecorder::begin() {
@@ -103,12 +111,21 @@ void RunRecorder::request(char command) {
       status("format requires spin switch off");
       break;
     }
+    if (!esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
+                                  ESP_PARTITION_SUBTYPE_ANY, "spiffs")) {
+      status("missing spiffs partition; select a Partition Scheme with SPIFFS and upload again");
+      break;
+    }
+    status("formatting filesystem; please wait");
     LittleFS.end();
     mounted = false;
-    if (LittleFS.format())
+    if (LittleFS.format()) {
       mount();
-    else
+      if (mounted)
+        status("format complete; filesystem ready");
+    } else {
       status("format failed");
+    }
     break;
   default: break;
   }

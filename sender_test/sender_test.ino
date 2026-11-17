@@ -73,7 +73,7 @@ void loop() {
   sendThrottle();
   if (Serial.available()) {
     const char command = Serial.read();
-    if (command == 's' || command == 'p' || command == 'e') {
+    if (command == 's' || command == 'p' || command == 'e' || command == 'f') {
       uint8_t request[RunDump::prefix_size + 1];
       RunDump::prefix(request, RunDump::Message::Command, 0, 0);
       request[RunDump::prefix_size] = command;
