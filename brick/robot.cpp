@@ -13,36 +13,36 @@ void Robot::begin() {
   left_motor.begin(LEFT_MOTOR_PIN, DSHOT600, false, 14);
   right_motor.begin(RIGHT_MOTOR_PIN, DSHOT600, false, 14);
 
-  Serial.println("init accel");
+  // Serial.println("init accel");
 
   // set up I2C
-  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
-  Wire.setClock(400'000);
-  // 10 msec timeout should be more than enough
-  Wire.setTimeout(10);
-  Serial.println("init i2c");
+  // Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+  // Wire.setClock(400'000);
+  // // 10 msec timeout should be more than enough
+  // Wire.setTimeout(10);
+  // Serial.println("init i2c");
 
-  accel.init(0x18);
+  // accel.init(0x18);
 
   // small wait needed before interacting with accelerometer
-  delay(20);
+  // delay(20);
 
-  // try and sample once to see if there is a connection error or not
-  accel.sample_offset();
+  // // try and sample once to see if there is a connection error or not
+  // accel.sample_offset();
 
-  // only calibrate if accel is properly connected
-  if (!accel.has_connection_error()) {
-    // sample offset
-    // TODO: move to other place/when should this happen?
-    for (int i = 0; i < 60; i++) {
-      accel.sample_offset();
-      delay(1);
-    }
+  // // only calibrate if accel is properly connected
+  // if (!accel.has_connection_error()) {
+  //   // sample offset
+  //   // TODO: move to other place/when should this happen?
+  //   for (int i = 0; i < 60; i++) {
+  //     accel.sample_offset();
+  //     delay(1);
+  //   }
 
-    Serial.println("did accel");
-  } else {
-    Serial.println("failed accel init!");
-  }
+  //   Serial.println("did accel");
+  // } else {
+  //   Serial.println("failed accel init!");
+  // }
 
   // NOTE: if comms used within 800 msec if startup then a temporary
   // disconnect can occur shouldn't cause an issue so no delay is added here
@@ -57,9 +57,9 @@ void Robot::begin() {
   pid->setMaxIntegral(MAX_INTEGRAL);
 
   // init z accel queue
-  for (int i = 0; i < sizeof(z_accel_queue) / sizeof(z_accel_queue[0]); i++) {
-    z_accel_queue[i] = 0.0;
-  }
+  // for (int i = 0; i < sizeof(z_accel_queue) / sizeof(z_accel_queue[0]); i++) {
+  //   z_accel_queue[i] = 0.0;
+  // }
 }
 
 // blocking
@@ -82,16 +82,24 @@ void Robot::general_update() {
   comms.update();
   // TODO: can read from accel at faster rate, can also only read x/y and read z
   // less often
-  accel.update_reading();
+  // accel.update_reading();
   int32_t accel_measurement_micros = micros();
-  accel_disconnected = accel.has_connection_error();
+  // accel_disconnected = accel.has_connection_error();
+  accel_disconnected = true;
 
-  float x = accel.get_x_accel(false);
-  float y = accel.get_y_accel(false);
-  float z = accel.get_z_accel(false);
-  uint16_t raw_x = accel.get_raw_x_accel();
-  uint16_t raw_y = accel.get_raw_y_accel();
-  uint16_t raw_z = accel.get_raw_z_accel();
+  float x = 0;
+  float y = 0;
+  float z = 0;
+  uint16_t raw_x = 0;
+  uint16_t raw_y = 0;
+  uint16_t raw_z = 0;
+
+  // float x = accel.get_x_accel(false);
+  // float y = accel.get_y_accel(false);
+  // float z = accel.get_z_accel(false);
+  // uint16_t raw_x = accel.get_raw_x_accel();
+  // uint16_t raw_y = accel.get_raw_y_accel();
+  // uint16_t raw_z = accel.get_raw_z_accel();
 
   // update z accel buffer
   update_z_buffer(z);
@@ -104,8 +112,8 @@ void Robot::general_update() {
     connected = ConnectionState::NetworkDisconnect;
   } else if (!throttle_packet->connected) {
     connected = ConnectionState::ControllerDisconnect;
-  } else if (accel_disconnected) {
-    connected = ConnectionState::AccelDisconnect;
+  // } else if (accel_disconnected) {
+  //   connected = ConnectionState::AccelDisconnect;
   } else if (!throttle_packet->swa) {
     connected = ConnectionState::SpinSwitchOff;
   } else {
@@ -183,7 +191,8 @@ void Robot::general_update() {
 
     // Serial.printf("avg z: %.3f\n", get_average_z_accel());
     // melt_input->is_upright = get_average_z_accel() >= 0;
-    bool curr_upright = get_average_z_accel() >= -1.0;
+    // bool curr_upright = get_average_z_accel() >= -1.0;
+    bool curr_upright = true;
 
     if (curr_upright != last_upright) {
       different_upright_time_msec += 10;

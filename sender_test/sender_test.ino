@@ -10,6 +10,7 @@ NowPair peer_link(NowPair::Role::Master, 6, HEARTBEAT_MS, TIMEOUT_MS);
 
 IBusBM IBus;
 DumpReceiver dump_receiver;
+bool swd = true;
 
 void connectionChanged(bool connected, void *arg) {
   Serial.println(connected ? "Slave connected" : "Slave disconnected");
@@ -118,6 +119,7 @@ void sendThrottle() {
 
   packet.swa = (IBus.readChannel(6) - 1000) > 500;
   packet.swb = (IBus.readChannel(7) - 1000) > 500;
+  swd = (IBus.readChannel(9) - 1000) > 500;
   // packet.swc = IBus.readChannel(4) - 1000;
   // packet.swd = IBus.readChannel(5) - 1000;
 
@@ -164,14 +166,14 @@ void sendThrottle() {
     packet.connected = false;
   }
 
-  static bool last_swb_state = true;
+  static bool last_swd_state = true;
 
   if(packet.connected){
     // from high to low, print next packet
-    if(last_swb_state && !packet.swb){
+    if(last_swd_state && !swd){
       print_next_packet = true;
     }
-    last_swb_state = packet.swb;
+    last_swd_state = swd;
     curr_throttle = packet.left_ud;
   }
 

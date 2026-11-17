@@ -24,9 +24,15 @@
         tio # terminal program to interface with serial
       ];
 
-      packages = with pkgs;[
-					arduino-ide
-					arduino-cli
+      packages = with pkgs; [
+        arduino-ide
+        arduino-cli
+
+        (pkgs.python3.withPackages (python-pkgs:
+          with python-pkgs; [
+            # select Python packages here
+            matplotlib
+          ]))
       ];
 
       # shellHook = ''
