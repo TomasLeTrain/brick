@@ -78,6 +78,7 @@ void RssiRpmEstimator::update(uint32_t now_ms) {
       (analyzed && last_grid_us - last_analysis_us < analysis_interval_us))
     return;
 
+  ++analyses;
   analyzed = true;
   last_analysis_us = last_grid_us;
   const int newest = (head + history_size - 1) % history_size;

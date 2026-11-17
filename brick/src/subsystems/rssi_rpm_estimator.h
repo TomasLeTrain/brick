@@ -11,6 +11,7 @@ public:
   void update(uint32_t now_ms);
   void reset();
 
+  uint32_t analysis_count() const { return analyses; }
   float rpm() const { return estimated_rpm; } // Zero when unavailable.
   float sample_rate_hz() const { return packet_rate_hz; }
 
@@ -41,6 +42,7 @@ private:
   uint32_t last_packet_us = 0;
   uint32_t last_grid_us = 0;
   uint32_t last_analysis_us = 0;
+  uint32_t analyses = 0;
   bool analyzed = false;
   unsigned agreeing_estimates = 0;
   float previous_candidate_rpm = 0;

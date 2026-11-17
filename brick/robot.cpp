@@ -102,7 +102,8 @@ void Robot::general_update() {
   ThrottlePacket *throttle_packet = comms.get_throttle_packet();
 
   if (!comms.connected()) {
-    Serial.println("network dc");
+    if (!comms.get_recorder().printing())
+      Serial.println("network dc");
     connected = ConnectionState::NetworkDisconnect;
   } else if (!throttle_packet->connected) {
     connected = ConnectionState::ControllerDisconnect;
@@ -129,6 +130,23 @@ void Robot::general_update() {
   const float rssi_rpm = rssi_estimator.rpm();
   const float curr_rpm =
       USE_RSSI_RPM_FOR_CONTROL && rssi_rpm > 0 ? rssi_rpm : accel_rpm;
+
+  RunDump::Record sample{};
+  sample.timestamp_us = accel_measurement_micros;
+  sample.received_us = micros();
+  sample.ax_g = x;
+  sample.ay_g = y;
+  sample.az_g = z;
+  sample.accel_rpm = accel_rpm;
+  sample.rssi_rpm = rssi_rpm;
+  sample.control_rpm = curr_rpm;
+  sample.rssi_hz = rssi_estimator.sample_rate_hz();
+  sample.throttle = throttle_packet->left_ud / 1000.0f;
+  sample.estimator_us = comms.estimator_time_us();
+  sample.rx_dropped = comms.dropped_rx();
+  sample.rssi_dropped = comms.dropped_rssi();
+  sample.connected = connected == ConnectionState::Ready;
+  comms.get_recorder().add_state(sample);
 
   if (connected == ConnectionState::Ready) {
     // all in range [-0.5, 0.5]
@@ -179,7 +197,8 @@ void Robot::general_update() {
     melt.general_update();
   } else {
     if (connected == ConnectionState::NetworkDisconnect) {
-      Serial.println("no controller thingy");
+      if (!comms.get_recorder().printing())
+        Serial.println("no controller thingy");
       leds.leds_on_no_controller();
     } else if (connected == ConnectionState::ControllerDisconnect) {
       leds.leds_on_controller_stale();
@@ -194,7 +213,8 @@ void Robot::general_update() {
   int printing_time = 20;
 
   if (comms.connected()) {
-    if (uint32_t(millis() - lastMessage) >= printing_time) {
+    if (!comms.get_recorder().printing() &&
+        uint32_t(millis() - lastMessage) >= printing_time) {
       // Serial.printf("l_lr=%d,l_ud=%d,r_lr=%d,r_ud=%d,kl=%d,kr=%d,c=%d\n",
       //               throttle_packet->left_lr, throttle_packet->left_ud,
       //               throttle_packet->right_lr, throttle_packet->right_ud,
@@ -207,7 +227,8 @@ void Robot::general_update() {
       lastMessage = millis();
     }
   } else {
-    Serial.println("disconnected");
+    if (!comms.get_recorder().printing())
+      Serial.println("disconnected");
   }
 
   // now send telemetry
@@ -227,7 +248,8 @@ void Robot::general_update() {
 
 void Robot::motor_update() {
   if (arming) {
-    Serial.println("arming");
+    if (!comms.get_recorder().printing())
+      Serial.println("arming");
     left_motor.send(command);
     right_motor.send(command);
   } else if (connected == ConnectionState::Ready) {

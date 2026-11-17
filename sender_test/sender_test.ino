@@ -1,5 +1,6 @@
 #include "NowPair.h"
 #include "IBusBM.h"
+#include "DumpReceiver.h"
 #include "../common/packets.h"
 
 #define HEARTBEAT_MS 50
@@ -8,6 +9,7 @@
 NowPair peer_link(NowPair::Role::Master, 6, HEARTBEAT_MS, TIMEOUT_MS);
 
 IBusBM IBus;
+DumpReceiver dump_receiver;
 
 void connectionChanged(bool connected, void *arg) {
   Serial.println(connected ? "Slave connected" : "Slave disconnected");
@@ -17,10 +19,12 @@ bool print_next_packet = false;
 float curr_throttle = 0;
 
 void received(const uint8_t *data, size_t length, int rssiDbm, uint32_t rssiTimestamp, void *arg) {
+  if (dump_receiver.receive(data, length))
+    return;
   TelemetryPacket packet;
   bool res = packet.deserialize(data, length);
   if (res) {
-    if(print_next_packet){
+    if(print_next_packet && !dump_receiver.receiving()){
       Serial.printf("x:%1.3f,y:%.3f,z:%.3f,rpm:%.3f,radius:%.3f,throttle:%.3f\n", TelemetryPacket::convertToG(packet.a_x), TelemetryPacket::convertToG(packet.a_y), TelemetryPacket::convertToG(packet.a_z), packet.rpm,packet.radius,curr_throttle);
       print_next_packet = false;
     }
@@ -67,6 +71,18 @@ uint8_t last_cnt_rec = 0;
 void loop() {
   IBus.loop();
   sendThrottle();
+  if (Serial.available()) {
+    const char command = Serial.read();
+    if (command == 's' || command == 'p' || command == 'e') {
+      uint8_t request[RunDump::prefix_size + 1];
+      RunDump::prefix(request, RunDump::Message::Command, 0, 0);
+      request[RunDump::prefix_size] = command;
+      if (!peer_link.sendData(request, sizeof(request)))
+        Serial.println("# dump command queue full or disconnected; retry");
+    }
+  }
+  dump_receiver.update(peer_link);
+  peer_link.setRssiStreaming(!dump_receiver.receiving());
   // One ESP-NOW frame can start per tick. Empty RSSI frames fill the slots
   // between throttle packets and heartbeat traffic.
   peer_link.update();
