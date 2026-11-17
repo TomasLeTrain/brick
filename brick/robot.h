@@ -50,4 +50,7 @@ public:
 
   float tank_linear = 0;
   float tank_angular = 0;
+
+  // buffer of last z accel values to determine if bot is upright or not
+  float z_accel_queue[5];
 };

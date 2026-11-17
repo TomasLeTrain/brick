@@ -1,5 +1,8 @@
 #include "pid.h"
 #include <Arduino.h>
+#include <cmath>
+
+float sgn(float x) { return x < 0 ? -1 : 1; }
 
 float PID::update(float curr_rpm) {
   float error = _target_rpm - curr_rpm;
@@ -11,8 +14,13 @@ float PID::update(float curr_rpm) {
   last_timestamp = now;
 
   integral += error * dt;
+  // cap integral
+  if (fabsf(integral) > _max_integral) {
+    integral = _max_integral * sgn(integral);
+  }
 
-  float result = error * _kp + integral * _ki;
+  float feedforward = _throttle_per_rpm * _target_rpm;
+  float result = feedforward + error * _kp + integral * _ki;
 
   return result;
 }

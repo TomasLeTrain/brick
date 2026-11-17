@@ -25,10 +25,10 @@ static constexpr int64_t ARM_HOLD_US = 0;
 
 // Bidirectional-DShot GCR: 5-bit quintet back to its nibble, 0xFF = invalid.
 static const uint8_t kGcrToNibble[32] = {
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,  // 0x00-0x07
-    0xFF, 0x09, 0x0A, 0x0B, 0xFF, 0x0D, 0x0E, 0x0F,  // 0x08-0x0F
-    0xFF, 0xFF, 0x02, 0x03, 0xFF, 0x05, 0x06, 0x07,  // 0x10-0x17
-    0xFF, 0x00, 0x08, 0x01, 0xFF, 0x04, 0x0C, 0xFF,  // 0x18-0x1F
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0x00-0x07
+    0xFF, 0x09, 0x0A, 0x0B, 0xFF, 0x0D, 0x0E, 0x0F, // 0x08-0x0F
+    0xFF, 0xFF, 0x02, 0x03, 0xFF, 0x05, 0x06, 0x07, // 0x10-0x17
+    0xFF, 0x00, 0x08, 0x01, 0xFF, 0x04, 0x0C, 0xFF, // 0x18-0x1F
 };
 
 void AlfredoDShot::releaseBootloader(int pin, uint16_t holdMs) {
@@ -72,7 +72,8 @@ bool AlfredoDShot::begin(int pin, DShotMode mode, bool bidirectional,
     rxc.clk_src = RMT_CLK_SRC_DEFAULT;
     rxc.resolution_hz = RMT_RES_HZ;
     rxc.mem_block_symbols = RMT_MEM;
-    if (rmt_new_rx_channel(&rxc, &_rx) != ESP_OK) return false;
+    if (rmt_new_rx_channel(&rxc, &_rx) != ESP_OK)
+      return false;
 
     rmt_rx_event_callbacks_t cbs = {};
     cbs.on_recv_done = onRxDone;
@@ -88,8 +89,8 @@ bool AlfredoDShot::begin(int pin, DShotMode mode, bool bidirectional,
   txc.resolution_hz = RMT_RES_HZ;
   txc.mem_block_symbols = RMT_MEM;
   txc.trans_queue_depth = 2;
-  txc.flags.io_loop_back = _bidir;  // keep the pad readable by the RX channel
-  txc.flags.io_od_mode = _bidir;    // open drain, so the ESC can pull it low
+  txc.flags.io_loop_back = _bidir; // keep the pad readable by the RX channel
+  txc.flags.io_od_mode = _bidir;   // open drain, so the ESC can pull it low
   if (rmt_new_tx_channel(&txc, &_tx) != ESP_OK) {
     end();
     return false;
@@ -171,25 +172,27 @@ bool AlfredoDShot::onRxDone(rmt_channel_handle_t,
 bool AlfredoDShot::onTxDone(rmt_channel_handle_t,
                             const rmt_tx_done_event_data_t *, void *ctx) {
   AlfredoDShot *self = (AlfredoDShot *)ctx;
-  if (self->_pushPull) gpio_ll_od_enable(&GPIO, self->_pin);
+  if (self->_pushPull)
+    gpio_ll_od_enable(&GPIO, self->_pin);
   return false;
 }
 
 void AlfredoDShot::armRx() {
   rmt_receive_config_t cfg = {};
-  cfg.signal_range_min_ns = 100;  // glitch filter, well under any real pulse
+  cfg.signal_range_min_ns = 100; // glitch filter, well under any real pulse
   cfg.signal_range_max_ns = _rxIdleNs;
   _rxDone = false;
   _rxArmed = (rmt_receive(_rx, _rxBuf, sizeof(_rxBuf), &cfg) == ESP_OK);
 }
 
 void AlfredoDShot::buildFrame(uint16_t value) {
-  uint16_t packet = (value & 0x07FF) << 1;  // telemetry-request bit stays 0
+  uint16_t packet = (value & 0x07FF) << 1; // telemetry-request bit stays 0
   uint16_t crc = (packet ^ (packet >> 4) ^ (packet >> 8)) & 0x0F;
-  if (_bidir) crc = (~crc) & 0x0F;  // inverted CRC is what asks for a reply
+  if (_bidir)
+    crc = (~crc) & 0x0F; // inverted CRC is what asks for a reply
   _frame = (packet << 4) | crc;
 
-  const uint8_t active = _bidir ? 0 : 1;  // bidirectional DShot is inverted
+  const uint8_t active = _bidir ? 0 : 1; // bidirectional DShot is inverted
   for (int i = 0; i < 16; ++i) {
     uint16_t hi = (_frame & (0x8000 >> i)) ? _t1h : _t0h;
     _txSym[i].level0 = active;
@@ -204,9 +207,9 @@ bool AlfredoDShot::send(uint16_t value) {
 
   if (_bidir && _rxArmed) {
     // Worst case: our frame + turnaround + 21 telemetry bits + idle timeout.
-    const uint32_t budget =
-        ((uint32_t)_tbit * 16 + ((_telemQ8 >> 8) * 21)) / (RMT_RES_HZ / 1000000) +
-        40 + _rxIdleNs / 1000 + 30;
+    const uint32_t budget = ((uint32_t)_tbit * 16 + ((_telemQ8 >> 8) * 21)) /
+                                (RMT_RES_HZ / 1000000) +
+                            40 + _rxIdleNs / 1000 + 30;
     const int64_t deadline = esp_timer_get_time() + budget;
     while (!_rxDone && esp_timer_get_time() < deadline) {
     }
@@ -225,12 +228,23 @@ bool AlfredoDShot::send(uint16_t value) {
     }
 
     switch (_status) {
-      case DSHOT_RX_OK: _stats.ok++; break;
-      case DSHOT_RX_NO_REPLY: _stats.noReply++; break;
-      case DSHOT_RX_FRAMING: _stats.framing++; break;
-      case DSHOT_RX_BAD_GCR: _stats.badGcr++; break;
-      case DSHOT_RX_BAD_CRC: _stats.badCrc++; break;
-      default: break;
+    case DSHOT_RX_OK:
+      _stats.ok++;
+      break;
+    case DSHOT_RX_NO_REPLY:
+      _stats.noReply++;
+      break;
+    case DSHOT_RX_FRAMING:
+      _stats.framing++;
+      break;
+    case DSHOT_RX_BAD_GCR:
+      _stats.badGcr++;
+      break;
+    case DSHOT_RX_BAD_CRC:
+      _stats.badCrc++;
+      break;
+    default:
+      break;
     }
     fresh = (_status == DSHOT_RX_OK);
   }
@@ -251,12 +265,14 @@ bool AlfredoDShot::send(uint16_t value) {
   // Arm the receiver before transmitting. The capture then covers our own
   // frame, the turnaround gap and the reply in one shot, so there is no ISR
   // race in the ~30 us window where the ESC starts talking.
-  if (_bidir) armRx();
+  if (_bidir)
+    armRx();
 
   buildFrame(value);
   // The RMT output idles high, so dropping open-drain here drives the line
   // high until the frame's first bit - no glitch. onTxDone() restores it.
-  if (_bidir && _pushPull) gpio_ll_od_disable(&GPIO, _pin);
+  if (_bidir && _pushPull)
+    gpio_ll_od_disable(&GPIO, _pin);
   rmt_transmit_config_t txc = {};
   txc.flags.eot_level = _bidir ? 1 : 0;
   rmt_transmit(_tx, _enc, _txSym, sizeof(_txSym), &txc);
@@ -266,9 +282,20 @@ bool AlfredoDShot::send(uint16_t value) {
 }
 
 bool AlfredoDShot::sendThrottle(float throttle) {
-  if (!(throttle > 0.0f)) return send(0);  // also catches NaN
-  if (throttle > 1.0f) throttle = 1.0f;
+  if (!(throttle > 0.0f))
+    return send(0); // also catches NaN
+  if (throttle > 1.0f)
+    throttle = 1.0f;
   return send(48 + (uint16_t)(throttle * 1999.0f + 0.5f));
+}
+
+// impl taken from
+// https://github.com/AlfredoSystems/AlfredoDShot/blob/df57e744ef710cd95afe9fe52f277eb3fa28cbb1/examples/Rotini_V4_Telemetry/Rotini_V4_Telemetry.ino#L90
+bool AlfredoDShot::sendThrottle3D(float throttle) {
+  if (!(fabsf(pct) > 0))
+    return 0; // also catches NaN
+  uint16_t steps = (uint16_t)(min(fabsf(pct), 100.0f) * 9.99f + 0.5f); // 0..999
+  return send((pct > 0 ? 1048 : 48) + steps);
 }
 
 void AlfredoDShot::command(uint16_t cmd, uint8_t repeat) {
@@ -276,12 +303,15 @@ void AlfredoDShot::command(uint16_t cmd, uint8_t repeat) {
   _cmdRepeat = repeat ? repeat : 1;
 }
 
-#define PULSE_LVL(i) ((i) & 1 ? _rxBuf[(i) >> 1].level1 : _rxBuf[(i) >> 1].level0)
-#define PULSE_DUR(i) ((i) & 1 ? _rxBuf[(i) >> 1].duration1 : _rxBuf[(i) >> 1].duration0)
+#define PULSE_LVL(i)                                                           \
+  ((i) & 1 ? _rxBuf[(i) >> 1].level1 : _rxBuf[(i) >> 1].level0)
+#define PULSE_DUR(i)                                                           \
+  ((i) & 1 ? _rxBuf[(i) >> 1].duration1 : _rxBuf[(i) >> 1].duration0)
 
 DShotRxStatus AlfredoDShot::decode(size_t nsym) {
   const size_t np = nsym * 2;
-  if (np == 0) return DSHOT_RX_NO_REPLY;
+  if (np == 0)
+    return DSHOT_RX_NO_REPLY;
 
   // Step past our own transmitted frame by finding the turnaround gap: the
   // first long high run. It swallows the tail of our last bit plus the ~30 us
@@ -290,7 +320,8 @@ DShotRxStatus AlfredoDShot::decode(size_t nsym) {
   bool found = false;
   for (; p < np; ++p) {
     uint16_t d = PULSE_DUR(p);
-    if (d == 0) break;  // RMT marks end of capture with a zero duration
+    if (d == 0)
+      break; // RMT marks end of capture with a zero duration
     if (PULSE_LVL(p) && d >= _gapMin) {
       found = true;
       ++p;
@@ -300,7 +331,8 @@ DShotRxStatus AlfredoDShot::decode(size_t nsym) {
   // Everything before the gap is our own frame read back off the wire - a free
   // check that the pin is actually being driven and released. See echoPulses().
   _echoPulses = found ? (uint16_t)(p - 1) : (uint16_t)p;
-  if (!found || p >= np) return DSHOT_RX_NO_REPLY;
+  if (!found || p >= np)
+    return DSHOT_RX_NO_REPLY;
 
   // The spec puts the reply at 5/4 of our bitrate, but AM32 doesn't always
   // follow it: at DShot300 it answers at the DShot600 telemetry rate. So when
@@ -308,10 +340,12 @@ DShotRxStatus AlfredoDShot::decode(size_t nsym) {
   // passes GCR and CRC. A wrong bit time passes both about 1 time in 256.
   uint16_t d16;
   DShotRxStatus st = decodeReply(p, np, _telemQ8, d16);
-  if (st == DSHOT_RX_FRAMING || st == DSHOT_RX_BAD_GCR || st == DSHOT_RX_BAD_CRC) {
+  if (st == DSHOT_RX_FRAMING || st == DSHOT_RX_BAD_GCR ||
+      st == DSHOT_RX_BAD_CRC) {
     const uint32_t alt[] = {_telemNomQ8, _telemNomQ8 / 2, _telemNomQ8 * 2};
     for (uint32_t q : alt) {
-      if (q == _telemQ8) continue;
+      if (q == _telemQ8)
+        continue;
       if (decodeReply(p, np, q, d16) == DSHOT_RX_OK) {
         _telemQ8 = q;
         st = DSHOT_RX_OK;
@@ -319,7 +353,8 @@ DShotRxStatus AlfredoDShot::decode(size_t nsym) {
       }
     }
   }
-  if (st == DSHOT_RX_OK) apply(d16 >> 4);
+  if (st == DSHOT_RX_OK)
+    apply(d16 >> 4);
   return st;
 }
 
@@ -331,18 +366,24 @@ DShotRxStatus AlfredoDShot::decodeReply(size_t p, size_t np, uint32_t telemQ8,
   int bits = 0;
   for (; p < np && bits < 21; ++p) {
     uint16_t d = PULSE_DUR(p);
-    if (d == 0) break;
-    if (bits == 0 && PULSE_LVL(p)) return DSHOT_RX_FRAMING;  // must start low
+    if (d == 0)
+      break;
+    if (bits == 0 && PULSE_LVL(p))
+      return DSHOT_RX_FRAMING; // must start low
 
     uint32_t n = ((uint32_t)d * 256u + (telemQ8 >> 1)) / telemQ8;
-    if (n == 0) n = 1;
-    if (bits + (int)n > 21) n = 21 - bits;  // trailing idle run, clamp it
+    if (n == 0)
+      n = 1;
+    if (bits + (int)n > 21)
+      n = 21 - bits; // trailing idle run, clamp it
 
     v = (v << n) | (PULSE_LVL(p) ? 0u : ((1u << n) - 1u));
     bits += n;
   }
-  if (bits == 0) return DSHOT_RX_NO_REPLY;
-  if (bits < 21) v <<= (21 - bits);  // line went idle early, pad with 0s
+  if (bits == 0)
+    return DSHOT_RX_NO_REPLY;
+  if (bits < 21)
+    v <<= (21 - bits); // line went idle early, pad with 0s
 
   // A 1 in the GCR stream means "the line toggled here".
   const uint32_t gcr = (v ^ (v >> 1)) & 0xFFFFFu;
@@ -350,12 +391,14 @@ DShotRxStatus AlfredoDShot::decodeReply(size_t p, size_t np, uint32_t telemQ8,
   const uint8_t n2 = kGcrToNibble[(gcr >> 10) & 0x1F];
   const uint8_t n1 = kGcrToNibble[(gcr >> 5) & 0x1F];
   const uint8_t n0 = kGcrToNibble[gcr & 0x1F];
-  if ((n3 | n2 | n1 | n0) & 0xF0) return DSHOT_RX_BAD_GCR;
+  if ((n3 | n2 | n1 | n0) & 0xF0)
+    return DSHOT_RX_BAD_GCR;
 
   d16 = (n3 << 12) | (n2 << 8) | (n1 << 4) | n0;
   uint16_t csum = d16 ^ (d16 >> 8);
   csum ^= csum >> 4;
-  if ((csum & 0x0F) != 0x0F) return DSHOT_RX_BAD_CRC;  // CRC is inverted
+  if ((csum & 0x0F) != 0x0F)
+    return DSHOT_RX_BAD_CRC; // CRC is inverted
   return DSHOT_RX_OK;
 }
 
@@ -370,20 +413,31 @@ void AlfredoDShot::apply(uint16_t data12) {
     const uint8_t val = data12 & 0xFF;
     _edtSeen = true;
     switch (type) {
-      case 0x02: _edtTemp = val; break;           // deg C
-      case 0x04: _edtVolts = val * 0.25f; break;  // 0.25 V steps, per spec
-      // 1 A steps, per spec. AM32 before 2.21 sent 0.5 A steps here
-      // (`actual_current / 50`, fixed in AM32 PR #403), so on 2.20 and older
-      // this reads double the real current.
-      case 0x06: _edtAmps = val; break;
-      case 0x0C: _edtStress = val; break;
-      case 0x0E: _edtStatus = val; break;
-      default: break;  // 0x08 / 0x0A are firmware debug channels
+    case 0x02:
+      _edtTemp = val;
+      break; // deg C
+    case 0x04:
+      _edtVolts = val * 0.25f;
+      break; // 0.25 V steps, per spec
+    // 1 A steps, per spec. AM32 before 2.21 sent 0.5 A steps here
+    // (`actual_current / 50`, fixed in AM32 PR #403), so on 2.20 and older
+    // this reads double the real current.
+    case 0x06:
+      _edtAmps = val;
+      break;
+    case 0x0C:
+      _edtStress = val;
+      break;
+    case 0x0E:
+      _edtStatus = val;
+      break;
+    default:
+      break; // 0x08 / 0x0A are firmware debug channels
     }
     return;
   }
 
-  if (data12 == 0x0FFF) {  // ESC says "not spinning"
+  if (data12 == 0x0FFF) { // ESC says "not spinning"
     _periodUs = 0;
     _erpm = 0;
   } else {
@@ -394,13 +448,15 @@ void AlfredoDShot::apply(uint16_t data12) {
 }
 
 uint32_t AlfredoDShot::ageUs() const {
-  if (!_lastOkUs) return UINT32_MAX;
+  if (!_lastOkUs)
+    return UINT32_MAX;
   return (uint32_t)(esp_timer_get_time() - _lastOkUs);
 }
 
 float AlfredoDShot::lossPercent() const {
   const uint32_t tried = _stats.ok + _stats.noReply + _stats.framing +
                          _stats.badGcr + _stats.badCrc;
-  if (!tried) return 0.0f;
+  if (!tried)
+    return 0.0f;
   return 100.0f * (tried - _stats.ok) / tried;
 }

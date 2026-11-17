@@ -28,6 +28,9 @@ struct MeltInput {
 
   // type of driving being used
   DriveType drive_type;
+
+  // whether robot is upright
+  bool is_upright;
 };
 
 struct MeltOutput {
@@ -69,6 +72,9 @@ struct MeltConfig {
 
   float heading_led_width = 0.5f;
   float vector_led_width = 0.02f;
+
+  // rpm must reach above this to be considered melting
+  float min_melting_rpm = 400;
 };
 
 class Melt {
@@ -128,4 +134,10 @@ private:
   float tank_right_power;
 
   int32_t turn_factor_us;
+
+  // -1 or 1, determined by whether robot is upside down or not
+  float vector_direction_multiplier;
+
+  // on when robot is spinning at a fast enough speed
+  bool melting = false;
 };

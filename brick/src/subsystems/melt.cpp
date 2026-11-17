@@ -8,8 +8,11 @@
 // call after changing any inputs
 void Melt::general_update() {
   // (min / rot) * (60 sec / 1 min) * (1'000'000 usecs / 1 sec) = (usec / rot)
-  // TODO: min rpm should be handled somewhere else?
+  // NOTE: a minimum in rpm is handled here even if it gets handled elsewhere to
+  // avoid infinite rotation time
   rotation_time_micros = (60 * 1'000'000) / fmaxf(input.rpm, 10);
+
+  melting = input.rpm > config.min_melting_rpm;
 
   //
   // // can move in any direction by finding the target angle, finding the
@@ -81,13 +84,12 @@ void Melt::general_update() {
     turn_control = 0;
   }
 
-  // TODO: figure out sign
-  // negative increases time of rotation (turns in direction opposite of
-  // movement), positive decreases time of rotation (turns in direction of
-  // movement)
-  // TODO: flipping also flips direction of turning?
   turn_factor_us =
       rotation_time_micros * turn_control * config.turn_magnitude_pct;
+
+  vector_direction_multiplier = input.is_upright ? 1 : -1;
+
+  // led stuff
 
   const int32_t half_led_heading_width_us =
       (rotation_time_micros * config.heading_led_width) / 2;
@@ -196,7 +198,9 @@ void Melt::fast_update_melt() {
     linear_power = factor * max_linear_power;
   }
 
-  // TODO: ccw setup?
+  // when upside down linear power goes backwards
+  linear_power *= vector_direction_multiplier;
+
   // assumes both + means bot goes forwards
   left_throttle -= linear_power;
   right_throttle += linear_power;
@@ -210,6 +214,12 @@ void Melt::fast_update_melt() {
 
 void Melt::led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],
                         uint8_t blue[]) {
+
+  // if not actually moving, just display a solid color
+  if (!melting) {
+    fill_color(255, 255, 255, red, green, blue);
+  }
+
   // offset for all led functions, should center so that
   // rotation_pct_us = 0 is the direction of movement if moving directly
   // forwards

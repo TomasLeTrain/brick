@@ -53,8 +53,10 @@ void Robot::begin() {
   Serial.println("init comms");
 
   PID *pid = melt.get_throtte_pid();
-  pid->setKp(1);
-  pid->setKi(0.1);
+  pid->setKp(KP);
+  pid->setKi(KI);
+  pid->setFeedforward(RPM_THROTTLE_FEEDFORWARD);
+  pid->setMaxIntegral(MAX_INTEGRAL);
 }
 
 // blocking
