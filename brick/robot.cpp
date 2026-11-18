@@ -237,20 +237,20 @@ void Robot::general_update() {
   int printing_time = 20;
 
   if (comms.connected()) {
-    if (!comms.get_recorder().printing() &&
-        uint32_t(millis() - lastMessage) >= printing_time) {
-      // Serial.printf("l_lr=%d,l_ud=%d,r_lr=%d,r_ud=%d,kl=%d,kr=%d,c=%d\n",
-      //               throttle_packet->left_lr, throttle_packet->left_ud,
-      //               throttle_packet->right_lr, throttle_packet->right_ud,
-      //               throttle_packet->knob_left, throttle_packet->knob_right,
-      //               throttle_packet->connected);
-      Serial.printf("x:%.3f,y:%.3f,z:%.3f,rpm:%.1f,fast_rpm:%.1f,"
-                    "long_rpm:%.1f,throttle:%.3f,rssi_hz:%.0f\n",
-                    x, y, z, curr_rpm, diagnostic.fast_rpm,
-                    diagnostic.long_rpm, spin_throttle,
-                    rssi_estimator.sample_rate_hz());
-      lastMessage = millis();
-    }
+    // if (!comms.get_recorder().printing() &&
+    //     uint32_t(millis() - lastMessage) >= printing_time) {
+    //   // Serial.printf("l_lr=%d,l_ud=%d,r_lr=%d,r_ud=%d,kl=%d,kr=%d,c=%d\n",
+    //   //               throttle_packet->left_lr, throttle_packet->left_ud,
+    //   //               throttle_packet->right_lr, throttle_packet->right_ud,
+    //   //               throttle_packet->knob_left, throttle_packet->knob_right,
+    //   //               throttle_packet->connected);
+    //   // Serial.printf("x:%.3f,y:%.3f,z:%.3f,rpm:%.1f,fast_rpm:%.1f,"
+    //   //               "long_rpm:%.1f,throttle:%.3f,rssi_hz:%.0f\n",
+    //   //               x, y, z, curr_rpm, diagnostic.fast_rpm,
+    //   //               diagnostic.long_rpm, spin_throttle,
+    //   //               rssi_estimator.sample_rate_hz());
+    //   lastMessage = millis();
+    // }
   } else {
     if (!comms.get_recorder().printing())
       Serial.println("disconnected");
