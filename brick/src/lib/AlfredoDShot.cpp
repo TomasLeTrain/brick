@@ -202,6 +202,10 @@ void AlfredoDShot::buildFrame(uint16_t value) {
   }
 }
 
+bool AlfredoDShot::wait_tx_idle(uint32_t timeout_ms) {
+  return !_tx || rmt_tx_wait_all_done(_tx, timeout_ms) == ESP_OK;
+}
+
 bool AlfredoDShot::send(uint16_t value) {
   bool fresh = false;
 

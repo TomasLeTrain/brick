@@ -88,6 +88,11 @@ LED::LED() {
   }
 }
 
+bool LED::wait_idle(uint32_t timeout_ms) {
+  return !_rmt_tx_channel ||
+         rmt_tx_wait_all_done(_rmt_tx_channel, timeout_ms) == ESP_OK;
+}
+
 void LED::leds_on_ready() { leds_on_rgb(0, 0, 255); }
 
 void LED::leds_on_low_battery() { leds_on_rgb(255, 0, 0); }
@@ -170,6 +175,10 @@ void LED::leds_on_rgb(uint8_t red, uint8_t green, uint8_t blue) {
 }
 
 void LED::write_pixels() {
+  // The encoder keeps a pointer to led_rmt_data. Never rewrite that buffer
+  // while a previous transmission (including deferred ISR work) still uses it.
+  if (!_rmt_tx_channel || rmt_tx_wait_all_done(_rmt_tx_channel, 0) != ESP_OK)
+    return;
   int index = 0;
   for (uint8_t chan : pixel_color) {
     uint8_t value = chan;

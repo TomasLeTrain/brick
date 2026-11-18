@@ -1,17 +1,18 @@
-#include <NowPair.h>
+#include "NowPair.h"
 #include "IBusBM.h"
+#include "DumpReceiver.h"
 #include "../common/packets.h"
 
 #define HEARTBEAT_MS 50
 #define TIMEOUT_MS 250
 
 NowPair peer_link(NowPair::Role::Master, 6, HEARTBEAT_MS, TIMEOUT_MS);
-bool peerConnected = false;
 
 IBusBM IBus;
+DumpReceiver dump_receiver;
+bool swd = true;
 
 void connectionChanged(bool connected, void *arg) {
-  peerConnected = connected;
   Serial.println(connected ? "Slave connected" : "Slave disconnected");
 }
 
@@ -19,11 +20,13 @@ bool print_next_packet = false;
 float curr_throttle = 0;
 
 void received(const uint8_t *data, size_t length, int rssiDbm, uint32_t rssiTimestamp, void *arg) {
+  if (dump_receiver.receive(data, length))
+    return;
   TelemetryPacket packet;
   bool res = packet.deserialize(data, length);
   if (res) {
-    if(print_next_packet){
-      Serial.printf("x:%1.3f,y:%.3f,z:%.3f,rpm:%.3f,radius:%.3f,throttle:%.3f\n", TelemetryPacket::convertToG(packet.a_x), TelemetryPacket::convertToG(packet.a_y), TelemetryPacket::convertToG(packet.a_z), packet.rpm,packet.radius,curr_throttle);
+    if(print_next_packet && !dump_receiver.receiving() && !dump_receiver.printing()){
+      Serial.printf("x:%1.3f,y:%.3f,z:%.3f,rpm:%.3f,throttle:%.3f\n", TelemetryPacket::convertToG(packet.a_x), TelemetryPacket::convertToG(packet.a_y), TelemetryPacket::convertToG(packet.a_z), packet.rpm,curr_throttle);
       print_next_packet = false;
     }
     
@@ -50,6 +53,12 @@ void setup() {
 
   peer_link.onConnectionChange(connectionChanged, NULL);
   peer_link.onData(received, NULL);
+  // Shorten unicast airtime so a frame can usually complete within one tick.
+  // Discovery broadcasts continue at the default rate.
+  const esp_now_rate_config_t tx_rate = {
+      WIFI_PHY_MODE_11G, WIFI_PHY_RATE_6M, false, false};
+  peer_link.setRate(&tx_rate);
+  peer_link.setRssiStreaming(true);
   if (!peer_link.begin()) {
     Serial.println("ESP-NOW initialization failed");
     while (true) delay(1000);
@@ -57,19 +66,40 @@ void setup() {
   Serial.println("Broadcasting discovery; waiting for slave...");
 }
 
-int last_cnt_rec_update = 0;
-int last_cnt_rec = 0;
+uint32_t last_cnt_rec_update = 0;
+uint8_t last_cnt_rec = 0;
 
 void loop() {
-  static uint8_t data_buffer[228];
-  ThrottlePacket packet;
-
-  // transmit at 1khz
-  int time_between_packets = 19;
-  digitalWrite(LED_BUILTIN, HIGH);
-
-  peer_link.update();  // Must run frequently, including while disconnected.
   IBus.loop();
+  sendThrottle();
+  if (Serial.available()) {
+    const char command = Serial.read();
+    if (command == 's' || command == 'p' || command == 'e' || command == 'f' || command == 'x') {
+      if (command == 'x')
+        dump_receiver.cancel();
+      uint8_t request[RunDump::prefix_size + 1];
+      RunDump::prefix(request, RunDump::Message::Command, 0, 0);
+      request[RunDump::prefix_size] = command;
+      if (!peer_link.sendData(request, sizeof(request)))
+        Serial.println("# dump command queue full or disconnected; retry");
+    }
+  }
+  dump_receiver.update(peer_link);
+  // One ESP-NOW frame can start per tick. Empty RSSI frames fill the slots
+  // between throttle packets and heartbeat traffic.
+  peer_link.update();
+  vTaskDelay(1);
+}
+
+void sendThrottle() {
+  constexpr uint32_t throttle_interval_ms = 20;
+  static uint32_t last_send_ms = 0;
+  const uint32_t now_ms = millis();
+  if (!peer_link.connected() || now_ms - last_send_ms < throttle_interval_ms)
+    return;
+
+  digitalWrite(LED_BUILTIN, HIGH);
+  ThrottlePacket packet;
 
   // 0 - right, left-right
   // 1 - right, up-down
@@ -90,6 +120,7 @@ void loop() {
 
   packet.swa = (IBus.readChannel(6) - 1000) > 500;
   packet.swb = (IBus.readChannel(7) - 1000) > 500;
+  swd = (IBus.readChannel(9) - 1000) > 500;
   // packet.swc = IBus.readChannel(4) - 1000;
   // packet.swd = IBus.readChannel(5) - 1000;
 
@@ -136,24 +167,19 @@ void loop() {
     packet.connected = false;
   }
 
-  static bool last_swb_state = true;
+  static bool last_swd_state = true;
 
   if(packet.connected){
     // from high to low, print next packet
-    if(last_swb_state && !packet.swb){
+    if(last_swd_state && !swd){
       print_next_packet = true;
     }
-    last_swb_state = packet.swb;
+    last_swd_state = swd;
     curr_throttle = packet.left_ud;
   }
 
-  static uint32_t lastMessage = 0;
-
-  if (peer_link.connected() && uint32_t(millis() - lastMessage) >= time_between_packets) {
-    size_t n = packet.serialize(data_buffer);
-    if (peer_link.sendData(data_buffer, n)) lastMessage = millis();
-  } else {
-  }
-
-  delay(10);
+  uint8_t data_buffer[NowPair::MAX_PAYLOAD];
+  const size_t length = packet.serialize(data_buffer);
+  if (peer_link.sendData(data_buffer, length))
+    last_send_ms = now_ms;
 }

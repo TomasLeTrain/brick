@@ -10,7 +10,7 @@
 #include <freertos/queue.h>
 
 // One global/static instance per ESP32. All public methods and application
-// callbacks run on the Arduino loop task. This class owns the ESP-NOW RX
+// callbacks run on the task that services update(). This class owns the ESP-NOW RX
 // callback.
 class NowPair : public ESP_NOW_Peer {
 public:
@@ -46,7 +46,7 @@ public:
     _dataCallback = cb;
     _dataArg = arg;
   }
-  // Samples from valid NowPair packets are delivered by update(), even when
+  // Samples from the bound peer are delivered by update(), even when
   // disconnected. Pass nullptr as the callback to stop collecting samples.
   void onRssi(RssiCallback cb, void *arg) {
     _rssiCallback = cb;
@@ -58,6 +58,9 @@ public:
   bool sendData(const void *data, size_t length);
   // Queue an empty measurement packet once the remote MAC has been learned.
   bool sendRssiSample();
+  // Fill idle TX slots with RSSI packets while connected. Control and
+  // application data still take priority, with only one frame in flight.
+  void setRssiStreaming(bool enabled) { _streamRssi = enabled; }
   uint32_t droppedRxPackets() const { return _droppedRx.load(); }
   uint32_t droppedRssiSamples() const { return _droppedRssi.load(); }
   uint32_t droppedControlReplies() const { return _droppedReplies; }
@@ -133,11 +136,13 @@ private:
   Broadcaster _broadcaster;
   QueueHandle_t _rx = nullptr, _rssiRx = nullptr;
   QueueHandle_t _controlTx = nullptr, _dataTx = nullptr;
-  bool _started = false, _bound = false, _connected = false;
+  bool _started = false, _connected = false;
+  std::atomic<bool> _bound{false};
   uint32_t _sequence = 0, _pendingSequence = 0;
   bool _probePending = false;
   uint32_t _lastReply = 0, _lastProbe = 0, _lastDiscovery = 0;
   std::atomic<bool> _txBusy{false}, _lastTxSuccess{false};
+  bool _streamRssi = false;
   std::atomic<bool> _collectRssi{false};
   std::atomic<uint32_t> _droppedRx{0}, _droppedRssi{0};
   uint32_t _droppedReplies = 0;

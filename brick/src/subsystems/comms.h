@@ -1,51 +1,39 @@
 #pragma once
 
 #include "../common/packets.h"
-#include "config.h"
-#include "src/lib/NowPair.h"
-
-#include <cstddef>
-#include <cstdint>
-
-#define RSSI_QUEUE_SIZE 1000
+#include "../../config.h"
+#include "rssi_rpm_estimator.h"
+#include "run_recorder.h"
+#include "../lib/NowPair.h"
 
 class Comms {
 public:
-  Comms();
-  ~Comms();
-
   bool send(TelemetryPacket *packet);
+  void update_recorder(bool idle) { recorder.update(peer_link, idle); }
   bool begin();
   void update();
-  bool connected();
+  void update_rpm(float throttle, float steady_rpm);
+  bool connected() const { return peer_link.connected(); }
 
   ThrottlePacket *get_throttle_packet() { return &current_throttle; }
-  NowPair *get_link() { return peer_link; }
-
-  // void dump_rssi();
-  // void print_dump();
+  const RssiRpmEstimator &get_rssi_estimator() const { return rssi_estimator; }
+  RunRecorder &get_recorder() { return recorder; }
+  uint32_t estimator_time_us() const { return estimator_us; }
+  uint32_t dropped_rx() const { return peer_link.droppedRxPackets(); }
+  uint32_t dropped_rssi() const { return peer_link.droppedRssiSamples(); }
 
 private:
-  static void dataCb(const uint8_t *data, size_t length, int rssiDbm,
-                     uint32_t rssiTimestamp, void *arg);
-  static void rssiCb(int rssiDbm, uint32_t rssiTimestamp, void *arg);
+  static void connectionCb(bool connected, void *arg);
+  static void dataCb(const uint8_t *data, size_t length, int rssi_dbm,
+                     uint32_t timestamp_us, void *arg);
+  static void rssiCb(int rssi_dbm, uint32_t timestamp_us, void *arg);
 
-  void on_data(const uint8_t *data, size_t length, int rssiDbm,
-               int rssiTimestamp);
-  void on_rssi(int rssiDbm, int rssiTimestamp);
-  void end();
-
-  void new_rssi_entry(int rssiDbm, int rssiTimestamp);
-
-  bool peerConnected = false;
-  NowPair *peer_link = nullptr;
-
-  ThrottlePacket current_throttle;
-
-  // int rssi[RSSI_QUEUE_SIZE];
-  // int rssi_timestamps[RSSI_QUEUE_SIZE];
-  // int rssi_idx = 0;
-  // int rssi_capacity = 0;
-  //
-  // bool dumping_rssi = false;
+  NowPair peer_link{NowPair::Role::Slave, 6, HEARTBEAT_MS, TIMEOUT_MS};
+  RssiRpmEstimator rssi_estimator;
+  RunRecorder recorder;
+  uint32_t estimator_us = 0;
+  bool switch_seen = false, last_swb = false;
+  ThrottlePacket current_throttle{};
+  uint32_t last_throttle_ms = 0;
+  uint32_t last_telemetry_ms = 0;
 };

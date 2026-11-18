@@ -1,3 +1,6 @@
+#ifndef BRICK_CONFIG_H
+#define BRICK_CONFIG_H
+
 // This file has all the hard-coded settings for Potatomelt
 
 #define NUM_LEDS 8
@@ -14,9 +17,8 @@
 #define HEARTBEAT_MS 50
 #define TIMEOUT_MS 250
 
-// // ------------ Spin control settings ----------------
-// #define ACCELEROMETER_HARDWARE_RADIUS_CM 4.668f
-#define ACCELEROMETER_HARDWARE_RADIUS_CM 4.846f
+// Optional active-low snapshot button. Connect the chosen free GPIO to GND.
+constexpr int DUMP_BUTTON_PIN = -1;
 
 // found from testing
 #define LED_SHIFT -0.15
@@ -30,3 +32,5 @@
 
 // max +-0.05 throttle correction from integral
 #define MAX_INTEGRAL 0.05f
+
+#endif

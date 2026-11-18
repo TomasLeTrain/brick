@@ -1,0 +1,44 @@
+#include "../brick/src/subsystems/melt.h"
+#include <cassert>
+
+uint32_t host_ms = 1000;
+void fill_color(uint8_t, uint8_t, uint8_t, uint8_t[], uint8_t[], uint8_t[]) {}
+void color_first_n(uint8_t, uint8_t, uint8_t, uint8_t[], uint8_t[], uint8_t[], int) {}
+
+int main() {
+  Melt melt;
+  auto &input = *melt.get_input();
+  input = {};
+  input.auto_drive_type = true;
+  melt.get_throtte_pid()->setFeedforward(0.00015f);
+
+  // A connected, enabled robot can be idle at neutral throttle and sticks.
+  melt.general_update();
+  assert(!melt.has_motor_command());
+
+  // Zero spin throttle selects tank mode and can still command either wheel.
+  input.vx = 0.8f;
+  melt.general_update();
+  assert(melt.has_motor_command());
+  input.vx = 0;
+  input.vy = -0.8f;
+  melt.general_update();
+  assert(melt.has_motor_command());
+
+  input.vy = 0;
+  input.target_rpm_control = 0.6f;
+  melt.general_update();
+  assert(melt.has_motor_command());
+  input.target_rpm_control = 0;
+  melt.general_update();
+  assert(!melt.has_motor_command());
+
+  // Manual melting also releases idle once its spin request is zero.
+  input.auto_drive_type = false;
+  input.manual_drive_type = DriveType::Melting;
+  melt.general_update();
+  assert(!melt.has_motor_command());
+  input.target_rpm_control = 0.6f;
+  melt.general_update();
+  assert(melt.has_motor_command());
+}

@@ -18,6 +18,7 @@ public:
   ~LED();
 
   void set_brightness(uint8_t brightness) { this->brightness = brightness; }
+  bool wait_idle(uint32_t timeout_ms);
 
   void leds_on_ready();
   void leds_on_low_battery();

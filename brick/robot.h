@@ -5,7 +5,8 @@
 #include "src/subsystems/comms.h"
 #include "src/subsystems/led.h"
 #include "src/subsystems/melt.h"
-#include "src/subsystems/rpm_estimator.h"
+#include "src/subsystems/accelerometer.h"
+#include "src/subsystems/storage_gate.h"
 
 enum ConnectionState {
   NetworkDisconnect,
@@ -34,7 +35,6 @@ private:
   AlfredoDShot left_motor;
   AlfredoDShot right_motor;
 
-  RpmEstimator rpm_estimator;
   Accelerometer accel;
 
   LED leds;
@@ -42,11 +42,14 @@ private:
 
   Melt melt;
 
-  bool arming = true;
+  std::atomic<bool> arming{true};
+  std::atomic<bool> motor_active{true};
+  std::atomic<uint32_t> motor_max_gap_us{0};
+  StorageGate storage_gate;
 
   // only applies when not arming
   // should only be true when no issues are present
-  ConnectionState connected = NetworkDisconnect;
+  std::atomic<ConnectionState> connected{NetworkDisconnect};
 
   bool accel_disconnected = true;
 
