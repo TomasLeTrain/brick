@@ -4,18 +4,21 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 
 namespace RunDump {
 constexpr uint32_t magic = 0x31524442; // BDR1, little-endian.
-constexpr uint32_t version = 3;
+constexpr uint32_t version = 4;
 constexpr uint8_t protocol_version = 1;
 constexpr size_t capacity = 2048;
 
 // Fixed-width little-endian IEEE-754 format shared by file, radio and host tools.
 struct Record {
   uint32_t timestamp_us;
-  uint32_t received_us; // Local task-delivery time, including queue delay.
-  float ax_g, ay_g, az_g;
+  uint32_t received_us; // v4 RSSI: Wi-Fi callback micros(); older dumps: task delivery.
+  // v4 reuses the disabled accelerometer's three slots, keeping RAM/radio size.
+  // For v1-v3 these bytes are still decoded/exported as ax_g, ay_g, az_g.
+  float phase_rad, phase_error_rad, phase_confidence;
   float target_rpm, rssi_rpm, control_rpm, rssi_hz, throttle;
   uint32_t estimator_us, rx_dropped, rssi_dropped;
   int16_t rssi_dbm;
@@ -26,7 +29,9 @@ struct Record {
   float fast_rpm, long_rpm, correlation;
   uint32_t analysis_timestamp_us;
   uint16_t comparison_samples, min_lag, max_lag;
-  uint8_t tracking_mode, hint_used; // v3 tracking_mode bits 2..7 store RPM status.
+  // tracking_mode bits 0..1 mode, 2..7 RPM status; v4 hint_used bit 0 hint,
+  // bits 1..7 phase status. State control_rpm is the phase prediction rate in v4.
+  uint8_t tracking_mode, hint_used;
   uint32_t motor_gap_us;
 };
 static_assert(sizeof(Record) == 84, "Dump record layout changed");
@@ -41,7 +46,8 @@ inline bool supported_format(const Header &header) {
   return header.magic_value == magic && header.count <= capacity &&
       ((header.format_version == 1 && header.record_size == 56) ||
        (header.format_version == 2 && header.record_size == 80) ||
-       (header.format_version == version && header.record_size == sizeof(Record)));
+       ((header.format_version == 3 || header.format_version == version) &&
+        header.record_size == sizeof(Record)));
 }
 
 inline bool decode_record(const uint8_t *data, const Header &header, Record &record) {
@@ -64,32 +70,42 @@ inline uint32_t crc32(uint32_t crc, const void *data, size_t length) {
   return crc;
 }
 
-constexpr const char *csv_header =
+constexpr char csv_header[] =
     "kind,timestamp_us,received_us,rssi_dbm,ax_g,ay_g,az_g,target_rpm,"
     "rssi_rpm,control_rpm,rssi_hz,throttle,estimator_us,rx_dropped,"
     "rssi_dropped,connected,fast_rpm,long_rpm,correlation,analysis_timestamp_us,"
     "comparison_samples,min_lag,max_lag,tracking_mode,hint_used,"
-    "connection_state,controller_connected,spin_enabled,capture_switch,rpm_status,motor_gap_us\n";
+    "connection_state,controller_connected,spin_enabled,capture_switch,rpm_status,motor_gap_us,"
+    "phase_rad,phase_error_rad,phase_confidence,phase_rpm,phase_status\n";
+static_assert(sizeof(csv_header) + 120 < 768, "CSV preamble exceeds export buffer");
 
-inline int csv_record(char *buffer, size_t size, const Record &r) {
+inline int csv_record(char *buffer, size_t size, const Record &r, uint32_t format_version = version) {
+  const bool phase = format_version >= 4 && r.kind == 2;
+  const float missing = std::numeric_limits<float>::quiet_NaN();
   return std::snprintf(buffer, size,
-      "%u,%lu,%lu,%d,%.5g,%.5g,%.5g,%.5g,%.5g,%.5g,%.5g,%.5g,%lu,%lu,%lu,%u,%.5g,%.5g,%.5g,%lu,%u,%u,%u,%u,%u,%d,%d,%d,%d,%d,%lu\n",
+      "%u,%lu,%lu,%d,%.5g,%.5g,%.5g,%.5g,%.5g,%.5g,%.5g,%.5g,%lu,%lu,%lu,%u,%.5g,%.5g,%.5g,%lu,%u,%u,%u,%u,%u,%d,%d,%d,%d,%d,%lu,%.6g,%.6g,%.5g,%.5g,%d\n",
       unsigned(r.kind), static_cast<unsigned long>(r.timestamp_us),
       static_cast<unsigned long>(r.received_us), int(r.rssi_dbm),
-      r.ax_g, r.ay_g, r.az_g, r.target_rpm, r.rssi_rpm, r.control_rpm,
+      format_version < 4 ? r.phase_rad : 0,
+      format_version < 4 ? r.phase_error_rad : 0,
+      format_version < 4 ? r.phase_confidence : 0,
+      r.target_rpm, r.rssi_rpm, r.control_rpm,
       r.rssi_hz, r.throttle, static_cast<unsigned long>(r.estimator_us),
       static_cast<unsigned long>(r.rx_dropped),
       static_cast<unsigned long>(r.rssi_dropped), unsigned(r.connected & 1u),
       r.fast_rpm, r.long_rpm, r.correlation,
       static_cast<unsigned long>(r.analysis_timestamp_us),
       unsigned(r.comparison_samples), unsigned(r.min_lag), unsigned(r.max_lag),
-      unsigned(r.tracking_mode & 3u), unsigned(r.hint_used),
+      unsigned(r.tracking_mode & 3u), unsigned(r.hint_used & 1u),
       r.connected & 0x80 ? (r.connected >> 1) & 7 : -1,
       r.connected & 0x80 ? bool(r.connected & 0x10) : -1,
       r.connected & 0x80 ? bool(r.connected & 0x20) : -1,
       r.connected & 0x80 ? bool(r.connected & 0x40) : -1,
       r.connected & 0x80 ? r.tracking_mode >> 2 : -1,
-      static_cast<unsigned long>(r.motor_gap_us));
+      static_cast<unsigned long>(r.motor_gap_us),
+      phase ? r.phase_rad : missing, phase ? r.phase_error_rad : missing,
+      phase ? r.phase_confidence : missing, phase ? r.control_rpm : missing,
+      phase ? r.hint_used >> 1 : -1);
 }
 
 enum class Message : uint8_t { Command = 1, Begin, Record, End, Ack, Status };

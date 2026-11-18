@@ -72,8 +72,8 @@ void NowPair::receivePacket(const esp_now_recv_info_t *info,
   if (!self || !info || !info->src_addr || !info->des_addr || length < 0)
     return;
   const RssiSample sample =
-      info->rx_ctrl ? RssiSample{info->rx_ctrl->rssi, info->rx_ctrl->timestamp}
-                    : RssiSample{RSSI_UNAVAILABLE, 0};
+      info->rx_ctrl ? RssiSample{info->rx_ctrl->rssi, info->rx_ctrl->timestamp, micros()}
+                    : RssiSample{RSSI_UNAVAILABLE, 0, micros()};
   self->enqueueRx(info->src_addr, data, static_cast<size_t>(length),
                   memcmp(info->des_addr, BROADCAST_MAC, 6) == 0, sample);
 }
@@ -318,5 +318,7 @@ void NowPair::update() {
        ++i) {
     if (_rssiCallback)
       _rssiCallback(sample.rssiDbm, sample.timestampUs, _rssiArg);
+    if (_timedRssiCallback)
+      _timedRssiCallback(sample.rssiDbm, sample.timestampUs, sample.callbackUs, _timedRssiArg);
   }
 }

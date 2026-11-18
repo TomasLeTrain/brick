@@ -4,11 +4,14 @@
 #include "../lib/NowPair.h"
 #include <FS.h>
 #include <atomic>
+static_assert(RunDump::prefix_size + sizeof(RunDump::Record) <= NowPair::MAX_PAYLOAD,
+              "Dump record exceeds radio payload");
 
 class RunRecorder {
 public:
   void begin();
   void add_rssi(int rssi_dbm, uint32_t radio_us);
+  void add_rssi(int rssi_dbm, uint32_t radio_us, uint32_t callback_us);
   void add_state(const RunDump::Record &state);
   void request(char command);
   void on_message(const uint8_t *data, size_t length);

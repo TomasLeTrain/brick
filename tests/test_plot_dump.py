@@ -113,6 +113,21 @@ class PlotDumpTests(unittest.TestCase):
         self.assertEqual(row["rpm_status"], 2)
         self.assertEqual(row["motor_gap_us"], 1200)
 
+    def test_version_four_phase_reuses_slots_and_decodes_status(self):
+        values = dict.fromkeys(plot_dump.BINARY_FIELDS, 0)
+        values.update(timestamp_us=10000, received_us=10050, kind=2,
+                      connected=0x89, ax_g=.6, ay_g=.03, az_g=.8,
+                      control_rpm=2101, hint_used=1 | (2 << 1))
+        payload = plot_dump.RECORD.pack(*values.values())
+        self.path.write_bytes(struct.pack("<8I", 0x31524442, 4, 1, 1, 84,
+                                          zlib.crc32(payload), 0, 0) + payload)
+        row = plot_dump.load(self.path)[0].rows[0]
+        self.assertAlmostEqual(row["phase_rad"], .6, places=5)
+        self.assertEqual(row["phase_rpm"], 2101)
+        self.assertEqual(row["phase_status"], 2)
+        self.assertEqual(row["hint_used"], 1)
+        self.assertNotIn("ax_g", row)
+
     def test_interactive_cursor_updates_correlation(self):
         import math
         import matplotlib

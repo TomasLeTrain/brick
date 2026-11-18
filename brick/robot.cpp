@@ -147,16 +147,18 @@ void Robot::general_update() {
   const auto &rssi_estimator = comms.get_rssi_estimator();
   const auto &diagnostic = rssi_estimator.diagnostics();
   const float curr_rpm = rssi_estimator.rpm();
+  const auto &phase = comms.get_phase_tracker().state();
+  melt.set_phase_reference(phase.timestamp_us, phase.phase_rad, phase.rpm);
 
   RunDump::Record sample{};
-  sample.timestamp_us = accel_measurement_micros;
+  sample.timestamp_us = phase.timestamp_us;
   sample.received_us = micros();
-  sample.ax_g = x;
-  sample.ay_g = y;
-  sample.az_g = z;
+  sample.phase_rad = phase.phase_rad;
+  sample.phase_error_rad = phase.error_rad;
+  sample.phase_confidence = phase.confidence;
   sample.target_rpm = steady_rpm;
   sample.rssi_rpm = curr_rpm;
-  sample.control_rpm = curr_rpm;
+  sample.control_rpm = phase.rpm;
   sample.rssi_hz = rssi_estimator.sample_rate_hz();
   sample.throttle = spin_throttle;
   sample.fast_rpm = diagnostic.fast_rpm;
@@ -168,7 +170,7 @@ void Robot::general_update() {
   sample.max_lag = diagnostic.max_lag;
   sample.tracking_mode = diagnostic.mode |
       (static_cast<uint8_t>(diagnostic.status) << 2);
-  sample.hint_used = diagnostic.hint_used;
+  sample.hint_used = uint8_t(diagnostic.hint_used) | (uint8_t(phase.status) << 1);
   sample.estimator_us = comms.estimator_time_us();
   sample.rx_dropped = comms.dropped_rx();
   sample.rssi_dropped = comms.dropped_rssi();

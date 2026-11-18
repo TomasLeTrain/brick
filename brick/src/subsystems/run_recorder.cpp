@@ -87,10 +87,14 @@ void RunRecorder::append(const RunDump::Record &record) {
 }
 
 void RunRecorder::add_rssi(int rssi_dbm, uint32_t radio_us) {
+  add_rssi(rssi_dbm, radio_us, micros());
+}
+
+void RunRecorder::add_rssi(int rssi_dbm, uint32_t radio_us, uint32_t callback_us) {
   RunDump::Record record{};
   record.kind = 1;
   record.timestamp_us = radio_us;
-  record.received_us = micros();
+  record.received_us = callback_us;
   record.rssi_dbm = rssi_dbm;
   append(record);
 }
@@ -360,7 +364,7 @@ void RunRecorder::serial_step() {
       return;
     }
   }
-  serial_size = RunDump::csv_record(serial_buffer, sizeof(serial_buffer), record);
+  serial_size = RunDump::csv_record(serial_buffer, sizeof(serial_buffer), record, header.format_version);
   ++export_index;
 }
 

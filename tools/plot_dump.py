@@ -32,9 +32,14 @@ RPM_STATUS = {
     5: "confirming period", 6: "tracking", 7: "holding previous RPM", 8: "stale",
     9: "period jump rejected",
 }
+PHASE_STATUS = {0: "unavailable", 1: "acquiring", 2: "phase locked",
+                3: "dead reckoning", 4: "ambiguous antenna lobes"}
 PANELS = (
     ("RSSI (dBm)", ("rssi_dbm",)),
-    ("RPM", ("rssi_rpm", "fast_rpm", "long_rpm", "target_rpm", "true_rpm")),
+    ("RPM", ("rssi_rpm", "fast_rpm", "long_rpm", "target_rpm", "phase_rpm", "true_rpm")),
+    ("Phase (wrapped rad)", ("phase_rad", "true_phase_rad")),
+    ("Phase innovation (rad)", ("phase_error_rad",)),
+    ("Phase confidence", ("phase_confidence",)),
     ("Motor throttle", ("throttle",)),
     ("Timing (µs)", ("estimator_us", "motor_gap_us")),
     ("Packets/s", ("rssi_hz",)),
@@ -54,7 +59,7 @@ def read_binary(path):
     magic, version, generation, count, record_size, crc, overwritten, paused = (
         HEADER.unpack_from(data)
     )
-    record = {1: RECORD_V1, 2: RECORD_V2, 3: RECORD}.get(version)
+    record = {1: RECORD_V1, 2: RECORD_V2, 3: RECORD, 4: RECORD}.get(version)
     fields = BINARY_FIELDS_V1 if version == 1 else BINARY_FIELDS[:25] if version == 2 else BINARY_FIELDS
     if magic != 0x31524442 or record is None or record_size != record.size:
         raise ValueError("unsupported binary dump format")
@@ -65,7 +70,7 @@ def read_binary(path):
         raise ValueError("binary dump CRC mismatch")
     rows = [dict(zip(fields, values)) for values in record.iter_unpack(payload)]
     for row in rows:
-        if version == 3 and row["connected"] & 0x80:
+        if version >= 3 and row["connected"] & 0x80:
             flags = row["connected"]
             row["connection_state"] = (flags >> 1) & 7
             row["controller_connected"] = bool(flags & 0x10)
@@ -74,6 +79,13 @@ def read_binary(path):
             row["connected"] = flags & 1
             row["rpm_status"] = row["tracking_mode"] >> 2
             row["tracking_mode"] &= 3
+        if version == 4:
+            row["phase_rad"] = row.pop("ax_g")
+            row["phase_error_rad"] = row.pop("ay_g")
+            row["phase_confidence"] = row.pop("az_g")
+            row["phase_rpm"] = row["control_rpm"]
+            row["phase_status"] = row["hint_used"] >> 1 if row["kind"] == 2 else -1
+            row["hint_used"] &= 1
     return [Dump(rows, f"generation={generation} overwritten={overwritten} paused={paused}")]
 
 
@@ -244,6 +256,9 @@ class DumpInspector:
             reason = row.get("rpm_status", -1)
             if math.isfinite(reason) and reason >= 0:
                 notes.append(f"{label}: {RPM_STATUS.get(int(reason), 'unknown RPM status')}")
+            phase_status = row.get("phase_status", -1)
+            if math.isfinite(phase_status) and phase_status >= 0:
+                notes.append(f"{label}: {PHASE_STATUS.get(int(phase_status), 'unknown phase status')}")
             if row.get("kind") == 2 and row.get("connected") == 0:
                 notes.append(f"{label}: firmware was not ready to drive")
             grid = grid_at(dump.rows, index)
@@ -289,7 +304,9 @@ def plot(dumps, start=None, end=None, selected_time=None):
     import matplotlib.pyplot as plt
     from matplotlib.widgets import Slider
 
-    available = {field for _, dump in dumps for row in dump.rows for field in row}
+    available = {field for _, dump in dumps for row in dump.rows
+                 for field, value in row.items() if math.isfinite(value) and
+                 (row.get("kind") != 1 or field == "rssi_dbm")}
     panels = [(label, fields) for label, fields in PANELS if available.intersection(fields)]
     if not panels:
         raise ValueError("no supported RSSI, RPM, throttle, packet-rate or timing columns")
@@ -310,9 +327,15 @@ def plot(dumps, start=None, end=None, selected_time=None):
                     if kind and ((field == "rssi_dbm" and kind != 1) or
                                  (field != "rssi_dbm" and kind != 2)):
                         continue
+                    # Legacy CSV re-exports append unavailable phase fields;
+                    # RSSI-row placeholders must not create phantom panels.
                     value = row.get(field, math.nan)
                     if not math.isfinite(value):
                         continue
+                    if field == "phase_rad" and row.get("phase_status") == 0:
+                        continue
+                    if field in ("phase_rad", "true_phase_rad"):
+                        value = (value + math.pi) % (2 * math.pi) - math.pi
                     if (start is None or t >= start) and (end is None or t <= end):
                         points.append((t, value))
                 if points:

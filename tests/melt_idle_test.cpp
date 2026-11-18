@@ -41,4 +41,17 @@ int main() {
   input.target_rpm_control = 0.6f;
   melt.general_update();
   assert(melt.has_motor_command());
+
+  // Rotor phase feeds the actual modulation path, not just diagnostics.
+  input.rpm = 1500;
+  input.is_upright = true;
+  input.vx = .8f;
+  input.vy = 0;
+  melt.general_update();
+  melt.set_phase_reference(host_ms * 1000, 0, 1500);
+  melt.fast_update();
+  assert(melt.get_output()->left_power < melt.get_output()->right_power);
+  melt.set_phase_reference(host_ms * 1000, 3.14159265358979323846f, 1500);
+  melt.fast_update();
+  assert(melt.get_output()->left_power > melt.get_output()->right_power);
 }

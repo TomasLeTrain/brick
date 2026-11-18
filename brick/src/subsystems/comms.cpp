@@ -29,11 +29,12 @@ void Comms::dataCb(const uint8_t *data, size_t length, int, uint32_t,
   }
 }
 
-void Comms::rssiCb(int rssi_dbm, uint32_t timestamp_us, void *arg) {
+void Comms::rssiCb(int rssi_dbm, uint32_t timestamp_us, uint32_t callback_us, void *arg) {
   auto &self = *static_cast<Comms *>(arg);
   if (self.connected()) {
-    self.recorder.add_rssi(rssi_dbm, timestamp_us);
+    self.recorder.add_rssi(rssi_dbm, timestamp_us, callback_us);
     self.rssi_estimator.add_sample(timestamp_us, rssi_dbm);
+    self.phase_tracker.add_sample(timestamp_us, callback_us, rssi_dbm);
   }
 }
 
@@ -56,7 +57,7 @@ bool Comms::begin() {
   recorder.begin();
   peer_link.onConnectionChange(connectionCb, this);
   peer_link.onData(dataCb, this);
-  peer_link.onRssi(rssiCb, this);
+  peer_link.onRssiTimed(rssiCb, this);
   return peer_link.begin();
 }
 
@@ -72,5 +73,6 @@ void Comms::update_rpm(float throttle, float steady_rpm) {
   const uint32_t started_us = micros();
   rssi_estimator.set_drive_hint(throttle, steady_rpm, millis());
   rssi_estimator.update(millis());
+  phase_tracker.update(micros(), rssi_estimator.rpm(), RSSI_PHASE_TRACKING);
   estimator_us = micros() - started_us;
 }

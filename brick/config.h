@@ -20,6 +20,9 @@
 // Optional active-low snapshot button. Connect the chosen free GPIO to GND.
 constexpr int DUMP_BUTTON_PIN = -1;
 
+// Disable RSSI phase corrections to compare with RPM-only dead reckoning.
+constexpr bool RSSI_PHASE_TRACKING = true;
+
 // found from testing
 #define LED_SHIFT -0.15
 

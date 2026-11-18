@@ -1,4 +1,5 @@
 #include "../brick/src/subsystems/rssi_rpm_estimator.h"
+#include "../brick/src/subsystems/rssi_phase_tracker.h"
 #include "../common/rssi_simulation.h"
 
 #include <chrono>
@@ -24,11 +25,12 @@ int main(int argc, char **argv) {
       throw std::invalid_argument("arguments out of range");
 
     RssiRpmEstimator estimator;
+    RssiPhaseTracker phase_tracker;
     RssiSimulation signal;
     std::cout << "# dump_begin simulation\n";
     std::string header = RunDump::csv_header;
     header.pop_back();
-    std::cout << header << ",true_rpm\n";
+    std::cout << header << ",true_rpm,true_phase_rad\n";
     uint32_t last_update = 0;
     while (signal.time_us() < seconds * 1000000.0) {
       const float actual_rpm = RssiSimulation::ramp_rpm(
@@ -41,23 +43,26 @@ int main(int argc, char **argv) {
       row.timestamp_us = row.received_us = signal.time_us();
       row.rssi_dbm = signal.rssi_dbm();
       estimator.add_sample(row.timestamp_us, row.rssi_dbm);
+      phase_tracker.add_sample(row.timestamp_us, row.received_us, row.rssi_dbm);
       char line[512];
       RunDump::csv_record(line, sizeof(line), row);
       std::string csv = line;
       csv.pop_back();
-      std::cout << csv << ',' << actual_rpm << '\n';
+      std::cout << csv << ',' << actual_rpm << ',' << signal.phase_rad() << '\n';
       if (signal.time_us() - last_update < 10000)
         continue;
       last_update = signal.time_us();
       const auto start = std::chrono::steady_clock::now();
       estimator.set_drive_hint(target / 6784.08434167f, target, last_update / 1000);
       estimator.update(last_update / 1000);
+      phase_tracker.update(last_update, estimator.rpm());
       row.estimator_us = std::chrono::duration_cast<std::chrono::microseconds>(
           std::chrono::steady_clock::now() - start).count();
       row.kind = 2;
-      const float omega = actual_rpm * 0.104719755f;
-      row.ax_g = omega * omega * 4.846f / 981.0f;
-      row.az_g = 1;
+      const auto &phase = phase_tracker.state();
+      row.phase_rad = phase.phase_rad;
+      row.phase_error_rad = phase.error_rad;
+      row.phase_confidence = phase.confidence;
       row.target_rpm = target;
       row.throttle = target / 6784.08434167f;
       const auto &d = estimator.diagnostics();
@@ -70,13 +75,14 @@ int main(int argc, char **argv) {
       row.max_lag = d.max_lag;
       row.tracking_mode = d.mode | (static_cast<uint8_t>(d.status) << 2);
       row.connected = 0x80;
-      row.hint_used = d.hint_used;
-      row.rssi_rpm = row.control_rpm = estimator.rpm();
+      row.hint_used = uint8_t(d.hint_used) | (uint8_t(phase.status) << 1);
+      row.rssi_rpm = estimator.rpm();
+      row.control_rpm = phase.rpm;
       row.rssi_hz = estimator.sample_rate_hz();
       RunDump::csv_record(line, sizeof(line), row);
       csv = line;
       csv.pop_back();
-      std::cout << csv << ',' << actual_rpm << '\n';
+      std::cout << csv << ',' << actual_rpm << ',' << signal.phase_rad() << '\n';
     }
     std::cout << "# dump_end\n";
   } catch (const std::exception &error) {

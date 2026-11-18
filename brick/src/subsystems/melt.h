@@ -2,6 +2,7 @@
 
 #include "../../config.h"
 #include "pid.h"
+#include "heading_clock.h"
 #include <cstdint>
 
 enum TranslationMethod { Square, Sine, Linear };
@@ -108,6 +109,10 @@ public:
   MeltConfig *get_config() { return &config; }
   MeltInput *get_input() { return &input; }
   const MeltOutput *get_output() { return &output; }
+  void set_phase_reference(uint32_t timestamp_us, float phase_rad, float rpm) {
+    heading.publish(timestamp_us, phase_rad, rpm);
+  }
+  float heading_rad() const { return heading.angle(); }
 
   // General-loop intent, independent of the motor task's last applied output.
   // Zero RPM request can select tank mode, which may still command movement.
@@ -124,20 +129,20 @@ private:
   // updates output with tank driving scheme
   void fast_update_tank();
   // updates output with melt driving scheme
-  void fast_update_melt();
+  void fast_update_melt(float current_theta);
 
   void led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],
                     uint8_t blue[]);
 
-  MeltInput input;
-  MeltOutput output;
+  MeltInput input{};
+  MeltOutput output{};
   MeltConfig config;
 
   PID throtte_pid;
 
   // below are values calculated by generated update
-  uint32_t rotation_start_timestamp = 0;
-  uint32_t rotation_time_micros;
+  HeadingClock heading;
+  uint32_t rotation_time_micros = 6000000;
 
   int32_t led_heading_start_us, led_heading_end_us;
   int32_t led_vector_start_us, led_vector_end_us;
@@ -149,7 +154,6 @@ private:
 
   // in range [0,2PI]
   float target_theta;
-  float current_theta_multiplier;
 
   // how agressively to move
   // in range [0,1]
@@ -159,7 +163,7 @@ private:
   float tank_left_power = 0;
   float tank_right_power = 0;
 
-  int32_t turn_factor_us;
+  std::atomic<float> turn_rate_rad_s{0};
 
   // -1 or 1, determined by whether robot is upside down or not
   float vector_direction_multiplier;

@@ -29,10 +29,6 @@ void Melt::general_update() {
   if (target_theta >= 2.0f * M_PI)
     target_theta -= 2.0f * M_PI;
 
-  // precomputed
-  // current_theta_multiplier * rotation_pct_us = theta
-  current_theta_multiplier = (2 * M_PI) / rotation_time_micros;
-
   float turn_control = input.turn_control;
 
   // turn control deadzone
@@ -81,8 +77,9 @@ void Melt::general_update() {
     // base_spin_power =
     //     input.target_rpm_control * config.melt_max_throttle_magnitude;
 
-    turn_factor_us =
-        rotation_time_micros * turn_control * config.turn_magnitude_pct;
+    // Preserve the previous nominal 1 kHz turning gain, but integrate actual
+    // elapsed time independently of rotor phase and RSSI corrections.
+    turn_rate_rad_s = 2 * M_PI * 1000 * turn_control * config.turn_magnitude_pct;
 
     vector_direction_multiplier = input.is_upright ? 1 : -1;
 
@@ -151,8 +148,10 @@ void Melt::general_update() {
 
 // updates fast loop params for how to move motors
 void Melt::fast_update() {
+  const float theta = heading.render(micros(), active_drive_type == DriveType::Melting
+                                                  ? turn_rate_rad_s.load() : 0);
   if (active_drive_type == DriveType::Melting) {
-    fast_update_melt();
+    fast_update_melt(theta);
   } else if (active_drive_type == DriveType::Tank) {
     fast_update_tank();
   }
@@ -173,21 +172,8 @@ void Melt::fast_update_tank() {
 }
 
 // TODO: change multipliers to allow int-only math
-void Melt::fast_update_melt() {
-  rotation_start_timestamp += turn_factor_us;
-
-  // amount of time spent in current rotation, in us
-  int32_t rotation_pct_us = micros() - rotation_start_timestamp;
-
-  // did a full rotation
-  if (rotation_pct_us > rotation_time_micros) {
-    // update time spent in rotation
-    rotation_pct_us -= rotation_time_micros;
-    // update when rotation started
-    rotation_start_timestamp += rotation_time_micros;
-  }
-
-  float current_theta = rotation_pct_us * current_theta_multiplier;
+void Melt::fast_update_melt(float current_theta) {
+  const int32_t rotation_pct_us = current_theta / (2 * M_PI) * rotation_time_micros;
 
   // Calculate diff in range -PI to PI
   float diff = current_theta - target_theta;
