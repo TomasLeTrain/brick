@@ -8,8 +8,8 @@ throttle packets every 20 ms. Heartbeat and throttle traffic have priority over
 probes. The sender services the link every millisecond on ESP32-S3 and uses
 6 Mbps for unicast. The actual receive rate depends on the radio link.
 
-RSSI is the robot's RPM source. The accelerometer still supplies orientation
-and raw acceleration logging. Watch serial output for `rpm`, `fast_rpm`,
+RSSI is the robot's RPM source. The current robot configuration disables the
+accelerometer, so its raw acceleration fields are zero. Watch serial output for `rpm`, `fast_rpm`,
 `long_rpm`, `throttle`, and `rssi_hz`. An RPM of zero means the signal has
 not acquired a reliable period or has lost it.
 
@@ -38,8 +38,8 @@ autocorrelation approach was inspired by
 ### Build and test
 
 The sketches were built for ESP32-S3 with Arduino-ESP32 3.3.7. Update both
-robot and sender firmware for version-2 dump exports. The desktop plotter
-accepts both version-1 and version-2 dumps.
+robot and sender firmware for version-3 dump exports. The desktop plotter
+accepts version-1, version-2 and version-3 dumps.
 
 ```sh
 arduino-cli compile --fqbn esp32:esp32:esp32s3:CDCOnBoot=cdc brick
@@ -51,6 +51,9 @@ c++ -std=c++17 -O2 -Ibrick/src/subsystems tests/rssi_rpm_estimator_test.cpp \
 c++ -std=c++17 -O2 -Ibrick/src/subsystems tests/rssi_tracking_test.cpp \
     brick/src/subsystems/rssi_rpm_estimator.cpp -o /tmp/brick-tracking-test
 /tmp/brick-tracking-test
+c++ -std=c++17 -O2 -Itests/host -Ibrick tests/run_recorder_test.cpp \
+    brick/src/subsystems/run_recorder.cpp -o /tmp/brick-recorder-test
+/tmp/brick-recorder-test
 ```
 
 ## Benchmark on an ESP32
@@ -83,10 +86,11 @@ acceleration columns are an ideal centrifugal reference at a 4.846 cm radius. Sa
 
 The robot keeps the latest 2048 events in RAM, including every delivered RSSI
 sample and each accelerometer/control update. At about 1000 RSSI packets/sec
-this covers roughly 1.8 seconds before the trigger. The version-2 buffer uses
-160 KiB RAM.
+this covers roughly 1.8 seconds before the trigger. The version-3 buffer uses
+168 KiB RAM.
 
-Toggle controller SWB from high to low to save the recent history to flash.
+Toggle controller SWB from high to low to capture the recent history. Flash
+persistence follows automatically after drive is disabled.
 Alternatively send `s` over either board's serial connection. An optional
 active-low GPIO button can be selected with `DUMP_BUTTON_PIN` in
 `brick/config.h`. Leave it at `-1` to use SWB and serial commands.
@@ -109,7 +113,7 @@ partition. It cannot create a missing entry in the partition table.
 On a new or incompatible filesystem, turn the spin switch off and send lowercase
 `f` through either board's serial monitor at 115200 baud. In Arduino IDE,
 enter `f` in the Serial Monitor input and press Send/Enter. Formatting erases
-that filesystem's contents. The robot reports `formatting filesystem; please wait`
+that filesystem's contents. The robot reports `format queued until motor outputs stop`
 and then `format complete; filesystem ready`, or an error. The sender forwards
 the final result. On startup, `filesystem ready; s saves recent history` confirms
 a successful mount. The firmware continues operating after a failed mount.
@@ -118,20 +122,32 @@ Firmware versions before this fix only accept `f` on the robot's serial port
 and give no confirmation after a successful format. Update both sketches to
 use the sender's format command and the new diagnostics.
 
-Saving freezes capture and copies up to 16 events per general-update loop.
-Capture resumes after the save finishes, usually over a second for a full
-buffer. The `paused` count reports events omitted while saving. Flash operations
-can add latency to control and radio tasks, so compare live timing and drop
-counts during a bench run. Two files alternate between saves. A versioned
-header, exact length and CRC identify a complete snapshot, allowing the previous
-complete file to be recovered after an interrupted write. The latest complete
-snapshot is selected after reboot. Version-1 snapshots can still be read and
-exported by the updated robot and sender. The `overwritten` count reports older events
-evicted from the rolling buffer.
+The trigger freezes the pre-trigger history in RAM. CRC preparation runs in
+small RAM-only steps while motor and radio updates continue. The snapshot can
+be exported using `p` or `e` while the robot is driving. Repeated `s` commands
+report that the same snapshot is retained.
+
+Flash writing starts automatically once drive is disabled and the motor task
+has acknowledged zero outputs for 200 ms. File-backed exports and formatting
+also wait for this idle state. Internal flash operations can suspend both ESP32
+cores, so writing flash while driving can interrupt DShot output even when
+writes are split into small pieces. RAM exports avoid those operations.
+
+After persistence succeeds, rolling capture resumes. The `paused` count reports
+events excluded while the snapshot is frozen. If power is removed before the
+deferred save finishes, that RAM snapshot is lost. RAM export provides a way to
+retrieve it first. A failed write retains the RAM snapshot, and `s` retries it.
+Two files alternate between saves. A versioned header, exact length and CRC
+identify a complete snapshot, allowing the previous complete file to be
+recovered after an interrupted write. Version-1 and version-2 snapshots remain
+readable and exportable. The `overwritten` count reports events evicted from the
+rolling buffer before capture. A repeated generation identifies repeated export
+of the same snapshot.
+
 
 | Command | Robot serial | Sender serial |
 | --- | --- | --- |
-| `s` | Save recent history | Request robot save |
+| `s` | Freeze recent history, queue flash save | Request robot capture |
 | `p` | Print saved CSV here | Request CSV on robot serial |
 | `e` | Export saved data over ESP-NOW | Request export, reconstruct and print CSV here |
 | `f` | Format filesystem with spin switch off | Request robot format |
@@ -141,15 +157,32 @@ Both CSV routes delimit a complete export with `# dump_begin` and
 be included in the file. ESP-NOW export uses session IDs, record indices,
 acknowledgements, retries and a final CRC check. Duplicate records are printed
 once. Throttle and heartbeat processing continues during export. The sender
-pauses RSSI probes while receiving the dump and resumes afterward. Request
-`e` again after an interrupted transfer. Additional save/export requests while
-a transfer or save is running report busy.
+continues RSSI probes while receiving the dump. Serial output is drained
+without blocking the sender's IBus/radio loop. Request
+`e` again after an interrupted transfer. Additional requests during export report busy. Repeated capture requests
+retain the frozen snapshot until it is saved.
 
 The CSV contains raw RSSI, accelerometer values in g, RSSI/control RPM, fast
 and long estimates, steady feedforward RPM, packet rate, commanded motor
-throttle, per-update estimator runtime, and queue drop counts. Version-2 records
+throttle, per-update estimator runtime, and queue drop counts. Records
 also identify the selected comparison length, lag search limits, analysis clock,
-mode and hint state. Full correlation arrays are calculated on the host.
+mode and hint state. Version-3 adds controller/spin/capture-switch flags,
+a connection-state code, the estimator's rejection reason and maximum motor-loop
+gap since the preceding state record. Full correlation arrays are calculated on
+the host. State-only columns on RSSI rows are placeholders and are ignored by
+the visualizer.
+
+`rpm_status` values are 0 warm-up, 1 low packet rate, 2 low RSSI variance,
+3 missing sample coverage, 4 no credible period, 5 confirming a period,
+6 tracking, 7 holding the previous estimate and 8 stale. Older exports use -1
+for unavailable status fields. The plotter shows the reason at the time cursor.
+A zero RPM with low RSSI variance is an unavailable measurement. Raw RSSI still
+needs visible periodic variation while the robot is spinning.
+
+`connection_state` values are 0 network disconnected, 1 controller disconnected,
+2 spin switch off, 3 accelerometer disconnected and 4 ready. The separate
+`controller_connected`, `spin_enabled` and `capture_switch` columns show the
+received control flags.
 `kind=1` identifies RSSI events and `kind=2` identifies accelerometer/control
 events. Fields belonging to the other event type are ignored by the plotter.
 RSSI `timestamp_us` comes from the Wi-Fi receive clock. State timestamps use

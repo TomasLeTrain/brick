@@ -85,7 +85,7 @@ class PlotDumpTests(unittest.TestCase):
         values.update(timestamp_us=10000, received_us=10050, kind=2,
                       target_rpm=2500, rssi_rpm=2450, fast_rpm=2450, long_rpm=2400,
                       correlation=.9, comparison_samples=72, min_lag=18, max_lag=31)
-        payload = plot_dump.RECORD.pack(*values.values())
+        payload = plot_dump.RECORD_V2.pack(*list(values.values())[:25])
         self.assertEqual(len(payload), 80)
         self.path.write_bytes(struct.pack("<8I", 0x31524442, 2, 1, 1, 80,
                                           zlib.crc32(payload), 0, 0) + payload)
@@ -94,6 +94,24 @@ class PlotDumpTests(unittest.TestCase):
         self.assertEqual(row["fast_rpm"], 2450)
         self.assertEqual(row["comparison_samples"], 72)
         self.assertNotIn("accel_rpm", row)
+
+
+    def test_version_three_control_and_rpm_diagnostics(self):
+        values = dict.fromkeys(plot_dump.BINARY_FIELDS, 0)
+        values.update(timestamp_us=10000, received_us=10050, kind=2,
+                      connected=0x80 | 1 | (4 << 1) | 0x10 | 0x20,
+                      tracking_mode=2 << 2, motor_gap_us=1200)
+        payload = plot_dump.RECORD.pack(*values.values())
+        self.path.write_bytes(struct.pack("<8I", 0x31524442, 3, 1, 1, 84,
+                                          zlib.crc32(payload), 0, 0) + payload)
+        row = plot_dump.load(self.path)[0].rows[0]
+        self.assertEqual(row["connected"], 1)
+        self.assertEqual(row["connection_state"], 4)
+        self.assertTrue(row["controller_connected"])
+        self.assertTrue(row["spin_enabled"])
+        self.assertFalse(row["capture_switch"])
+        self.assertEqual(row["rpm_status"], 2)
+        self.assertEqual(row["motor_gap_us"], 1200)
 
     def test_interactive_cursor_updates_correlation(self):
         import math

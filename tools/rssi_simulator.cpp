@@ -68,7 +68,8 @@ int main(int argc, char **argv) {
       row.comparison_samples = d.comparison_samples;
       row.min_lag = d.min_lag;
       row.max_lag = d.max_lag;
-      row.tracking_mode = d.mode;
+      row.tracking_mode = d.mode | (static_cast<uint8_t>(d.status) << 2);
+      row.connected = 0x80;
       row.hint_used = d.hint_used;
       row.rssi_rpm = row.control_rpm = estimator.rpm();
       row.rssi_hz = estimator.sample_rate_hz();

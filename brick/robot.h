@@ -41,11 +41,13 @@ private:
 
   Melt melt;
 
-  bool arming = true;
+  std::atomic<bool> arming{true};
+  std::atomic<bool> motor_active{true};
+  std::atomic<uint32_t> motor_max_gap_us{0};
 
   // only applies when not arming
   // should only be true when no issues are present
-  ConnectionState connected = NetworkDisconnect;
+  std::atomic<ConnectionState> connected{NetworkDisconnect};
 
   bool accel_disconnected = true;
 

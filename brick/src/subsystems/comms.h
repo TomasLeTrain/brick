@@ -9,6 +9,7 @@
 class Comms {
 public:
   bool send(TelemetryPacket *packet);
+  void update_recorder(bool idle) { recorder.update(peer_link, idle); }
   bool begin();
   void update();
   void update_rpm(float throttle, float steady_rpm);

@@ -57,7 +57,6 @@ void Comms::update() {
   const uint32_t now_ms = millis();
   if (now_ms - last_throttle_ms >= throttle_timeout_ms)
     current_throttle.connected = false;
-  recorder.update(peer_link);
 }
 
 void Comms::update_rpm(float throttle, float steady_rpm) {

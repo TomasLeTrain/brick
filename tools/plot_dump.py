@@ -14,22 +14,29 @@ import zlib
 
 HEADER = struct.Struct("<8I")
 RECORD_V1 = struct.Struct("<II8fIIIhBB")
-RECORD = struct.Struct("<II8fIIIhBB3fI3H2B")
+RECORD_V2 = struct.Struct("<II8fIIIhBB3fI3H2B")
+RECORD = struct.Struct("<II8fIIIhBB3fI3H2BI")
 BINARY_FIELDS = (
     "timestamp_us", "received_us", "ax_g", "ay_g", "az_g", "target_rpm",
     "rssi_rpm", "control_rpm", "rssi_hz", "throttle", "estimator_us",
     "rx_dropped", "rssi_dropped", "rssi_dbm", "kind", "connected",
     "fast_rpm", "long_rpm", "correlation", "analysis_timestamp_us",
     "comparison_samples", "min_lag", "max_lag", "tracking_mode", "hint_used",
+    "motor_gap_us",
 )
 BINARY_FIELDS_V1 = BINARY_FIELDS[:5] + ("accel_rpm",) + BINARY_FIELDS[6:16]
 ALIASES = {"rssi": "rssi_dbm", "timestamp": "timestamp_us"}
+RPM_STATUS = {
+    0: "warming up", 1: "packet rate too low", 2: "RSSI variance too low",
+    3: "missing sample coverage", 4: "no credible period",
+    5: "confirming period", 6: "tracking", 7: "holding previous RPM", 8: "stale",
+}
 PANELS = (
     ("RSSI (dBm)", ("rssi_dbm",)),
     ("RPM", ("rssi_rpm", "fast_rpm", "long_rpm", "target_rpm", "true_rpm")),
     ("Motor throttle", ("throttle",)),
     ("Acceleration (g)", ("ax_g", "ay_g", "az_g")),
-    ("Estimator update (µs)", ("estimator_us",)),
+    ("Timing (µs)", ("estimator_us", "motor_gap_us")),
     ("Packets/s", ("rssi_hz",)),
 )
 
@@ -47,9 +54,9 @@ def read_binary(path):
     magic, version, generation, count, record_size, crc, overwritten, paused = (
         HEADER.unpack_from(data)
     )
-    record = RECORD_V1 if version == 1 else RECORD
-    fields = BINARY_FIELDS_V1 if version == 1 else BINARY_FIELDS
-    if magic != 0x31524442 or version not in (1, 2) or record_size != record.size:
+    record = {1: RECORD_V1, 2: RECORD_V2, 3: RECORD}.get(version)
+    fields = BINARY_FIELDS_V1 if version == 1 else BINARY_FIELDS[:25] if version == 2 else BINARY_FIELDS
+    if magic != 0x31524442 or record is None or record_size != record.size:
         raise ValueError("unsupported binary dump format")
     payload = data[HEADER.size:]
     if count > 2048 or len(payload) != count * record.size:
@@ -57,6 +64,16 @@ def read_binary(path):
     if zlib.crc32(payload) != crc:
         raise ValueError("binary dump CRC mismatch")
     rows = [dict(zip(fields, values)) for values in record.iter_unpack(payload)]
+    for row in rows:
+        if version == 3 and row["connected"] & 0x80:
+            flags = row["connected"]
+            row["connection_state"] = (flags >> 1) & 7
+            row["controller_connected"] = bool(flags & 0x10)
+            row["spin_enabled"] = bool(flags & 0x20)
+            row["capture_switch"] = bool(flags & 0x40)
+            row["connected"] = flags & 1
+            row["rpm_status"] = row["tracking_mode"] >> 2
+            row["tracking_mode"] &= 3
     return [Dump(rows, f"generation={generation} overwritten={overwritten} paused={paused}")]
 
 
@@ -224,6 +241,11 @@ class DumpInspector:
             index = state_indices[-1] if state_indices else max(
                 0, self.bisect_right(clock, selected_time) - 1)
             row = dump.rows[index]
+            reason = row.get("rpm_status", -1)
+            if math.isfinite(reason) and reason >= 0:
+                notes.append(f"{label}: {RPM_STATUS.get(int(reason), 'unknown RPM status')}")
+            if row.get("kind") == 2 and row.get("connected") == 0:
+                notes.append(f"{label}: firmware was not ready to drive")
             grid = grid_at(dump.rows, index)
             samples = int(row.get("comparison_samples", 0)) or 250
             first = int(row.get("min_lag", 0)) or 9

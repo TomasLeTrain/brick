@@ -152,12 +152,16 @@ void Robot::general_update() {
   sample.comparison_samples = diagnostic.comparison_samples;
   sample.min_lag = diagnostic.min_lag;
   sample.max_lag = diagnostic.max_lag;
-  sample.tracking_mode = diagnostic.mode;
+  sample.tracking_mode = diagnostic.mode |
+      (static_cast<uint8_t>(diagnostic.status) << 2);
   sample.hint_used = diagnostic.hint_used;
   sample.estimator_us = comms.estimator_time_us();
   sample.rx_dropped = comms.dropped_rx();
   sample.rssi_dropped = comms.dropped_rssi();
-  sample.connected = connected == ConnectionState::Ready;
+  sample.connected = 0x80 | (connected == ConnectionState::Ready) |
+      (uint8_t(connected.load()) << 1) | (throttle_packet->connected ? 0x10 : 0) |
+      (throttle_packet->swa ? 0x20 : 0) | (throttle_packet->swb ? 0x40 : 0);
+  sample.motor_gap_us = motor_max_gap_us.exchange(0);
   comms.get_recorder().add_state(sample);
 
   if (connected == ConnectionState::Ready) {
@@ -255,15 +259,27 @@ void Robot::general_update() {
   telemetry_packet.micros_timestamp = accel_measurement_micros;
 
   comms.send(&telemetry_packet);
+  comms.update_recorder(!arming && connected != ConnectionState::Ready &&
+                        !motor_active.load());
 
   // perform every 10 msec
   vTaskDelay(10);
 }
 
 void Robot::motor_update() {
+  static uint32_t previous_us = 0;
+  const uint32_t now_us = micros();
+  if (previous_us) {
+    const uint32_t gap = now_us - previous_us;
+    uint32_t maximum = motor_max_gap_us.load();
+    while (gap > maximum &&
+           !motor_max_gap_us.compare_exchange_weak(maximum, gap)) {}
+  }
+  previous_us = now_us;
   if (arming) {
     if (!comms.get_recorder().printing())
       Serial.println("arming");
+    motor_active.store(true);
     left_motor.send(command);
     right_motor.send(command);
   } else if (connected == ConnectionState::Ready) {
@@ -276,7 +292,9 @@ void Robot::motor_update() {
         fabs(output->right_power) < 0.0001) {
       left_motor.send(0);
       right_motor.send(0);
+      motor_active.store(false);
     } else {
+      motor_active.store(true);
       // left_motor.sendThrottle(output->left_power);
       // right_motor.sendThrottle(output->right_power);
       left_motor.sendThrottle3D(-output->left_power * 100.f);
@@ -292,6 +310,7 @@ void Robot::motor_update() {
     // stop the motors unless strictly good for spinning
     left_motor.send(0);
     right_motor.send(0);
+    motor_active.store(false);
   }
 
   // perform every msec

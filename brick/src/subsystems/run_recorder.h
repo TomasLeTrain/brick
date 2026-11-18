@@ -12,14 +12,19 @@ public:
   void add_state(const RunDump::Record &state);
   void request(char command);
   void on_message(const uint8_t *data, size_t length);
-  void update(NowPair &link);
-  bool printing() const { return serial_export.load(); }
+  void update(NowPair &link, bool storage_idle);
+  bool printing() const { return serial_export.load() || status_output_active.load(); }
 
 private:
   void append(const RunDump::Record &record);
   bool validate(int slot, RunDump::Header &header);
   void mount();
+  enum class CapturePhase { Rolling, Preparing, Waiting, Writing };
   void start_save();
+  void prepare_step();
+  void begin_save();
+  void format();
+  void print_status();
   void save_step();
   void start_export(bool radio);
   void serial_step();
@@ -32,14 +37,20 @@ private:
   RunDump::Record state{};
   size_t head = 0, count = 0, saved = 0;
   uint32_t overwritten = 0, paused = 0, checksum = UINT32_MAX;
-  bool mounted = false, saving = false, radio_export = false;
-  std::atomic<bool> serial_export{false};
+  bool mounted = false, radio_export = false, ram_export = false;
+  CapturePhase phase = CapturePhase::Rolling;
+  bool write_failed = false, format_requested = false, serial_finishing = false;
+  char export_requested = 0;
+  bool storage_idle_now = false, idle_seen = false;
+  uint32_t idle_since_ms = 0;
+  std::atomic<bool> serial_export{false}, status_output_active{false};
   int latest_slot = -1;
   RunDump::Header latest{}, pending{};
   fs::File save_file, export_file;
   uint32_t export_index = 0, session = 0, last_send_ms = 0;
   bool waiting_ack = false, sending_begin = false, sending_end = false;
-  char serial_buffer[512];
+  bool radio_complete = false, radio_restart = false;
+  char serial_buffer[768];
   size_t serial_size = 0, serial_position = 0;
   uint8_t radio_buffer[NowPair::MAX_PAYLOAD];
   size_t radio_size = 0;
@@ -49,4 +60,7 @@ private:
   bool button_raw = false;
   bool status_pending = false;
   char status_message[100]{};
+  char status_serial[128]{};
+  size_t status_size = 0, status_position = 0;
+  bool status_serial_pending = false;
 };

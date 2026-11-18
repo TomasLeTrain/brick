@@ -25,7 +25,7 @@ void received(const uint8_t *data, size_t length, int rssiDbm, uint32_t rssiTime
   TelemetryPacket packet;
   bool res = packet.deserialize(data, length);
   if (res) {
-    if(print_next_packet && !dump_receiver.receiving()){
+    if(print_next_packet && !dump_receiver.receiving() && !dump_receiver.printing()){
       Serial.printf("x:%1.3f,y:%.3f,z:%.3f,rpm:%.3f,throttle:%.3f\n", TelemetryPacket::convertToG(packet.a_x), TelemetryPacket::convertToG(packet.a_y), TelemetryPacket::convertToG(packet.a_z), packet.rpm,curr_throttle);
       print_next_packet = false;
     }
@@ -83,7 +83,6 @@ void loop() {
     }
   }
   dump_receiver.update(peer_link);
-  peer_link.setRssiStreaming(!dump_receiver.receiving());
   // One ESP-NOW frame can start per tick. Empty RSSI frames fill the slots
   // between throttle packets and heartbeat traffic.
   peer_link.update();

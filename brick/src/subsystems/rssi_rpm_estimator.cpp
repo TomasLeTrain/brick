@@ -86,6 +86,7 @@ void RssiRpmEstimator::update(uint32_t now_ms) {
     last_sample_ms = now_ms;
   } else if (now_ms - last_sample_ms >= no_samples_timeout_ms) {
     reset();
+    diagnostic.status = Status::Stale;
     return;
   }
   if (size < history_size ||
@@ -104,6 +105,7 @@ void RssiRpmEstimator::update(uint32_t now_ms) {
     estimated_rpm = 0;
     locked = false;
     agreeing_estimates = 0;
+    diagnostic.status = Status::LowPacketRate;
     return;
   }
 
@@ -140,6 +142,7 @@ void RssiRpmEstimator::update(uint32_t now_ms) {
               ? agreeing_estimates + 1 : (long_result.rpm > 0 ? 1 : 0);
       previous_candidate_rpm = long_result.rpm;
       diagnostic.mode = 0;
+      diagnostic.status = long_result.rpm > 0 ? Status::Confirming : long_result.status;
       diagnostic.fast_rpm = 0;
       diagnostic.comparison_samples = comparison_samples;
       diagnostic.min_lag = first_lag;
@@ -169,9 +172,11 @@ void RssiRpmEstimator::update(uint32_t now_ms) {
   diagnostic.max_lag = last;
   diagnostic.mode = transient ? 2 : 1;
   diagnostic.correlation = fast.correlation;
+  diagnostic.status = fast.status;
 
   if (fast.rpm > 0 && fast.correlation >= 0.60f) {
     estimated_rpm = fast.rpm;
+    diagnostic.status = Status::Tracking;
     last_good_ms = now_ms;
     if (long_result.rpm > 0 &&
         std::abs(fast.rpm - long_result.rpm) > 0.06f * long_result.rpm) {
@@ -182,6 +187,7 @@ void RssiRpmEstimator::update(uint32_t now_ms) {
              long_result.correlation >= 0.70f &&
              std::abs(long_result.rpm - estimated_rpm) < 0.08f * estimated_rpm) {
     estimated_rpm = long_result.rpm;
+    diagnostic.status = Status::Tracking;
     last_good_ms = now_ms;
     diagnostic.comparison_samples = comparison_samples;
     diagnostic.min_lag = first_lag;
@@ -191,6 +197,9 @@ void RssiRpmEstimator::update(uint32_t now_ms) {
     estimated_rpm = 0;
     locked = false;
     agreeing_estimates = 0;
+    diagnostic.status = Status::Stale;
+  } else {
+    diagnostic.status = Status::Holding;
   }
 }
 
@@ -204,7 +213,7 @@ RssiRpmEstimator::Result RssiRpmEstimator::analyze(
     int samples, int first, int last, float preferred_rpm, float *output) const {
   if (samples < 2 || samples > comparison_samples || first < first_lag ||
       last > max_lag || first > last || size < samples + last + 1)
-    return {};
+    return {0, 0, Status::MissingData};
   const int span = samples + last + 1;
   const int oldest = (head + history_size - span) % history_size;
   // Fit and subtract a linear baseline using the observed portion of the span.
@@ -227,7 +236,7 @@ RssiRpmEstimator::Result RssiRpmEstimator::analyze(
     cross += time * window[i];
   }
   if (available < span * 4 / 5)
-    return {};
+    return {0, 0, Status::MissingData};
 
   const float slope = (cross - time_sum * rssi_sum / available) /
                       (time_energy - time_sum * time_sum / available);
@@ -241,6 +250,7 @@ RssiRpmEstimator::Result RssiRpmEstimator::analyze(
   std::array<float, max_lag + 2> correlation;
   correlation.fill(unavailable_correlation);
   const int ref_start = last + 1;
+  bool enough_pairs = false, enough_variance = false;
   for (int lag = first - 1; lag <= last + 1; ++lag) {
     int count = 0;
     float sum = 0, delayed_sum = 0, energy = 0, delayed_energy = 0, dot = 0;
@@ -260,10 +270,12 @@ RssiRpmEstimator::Result RssiRpmEstimator::analyze(
     correlation[lag] = unavailable_correlation;
     if (count < samples * 4 / 5)
       continue;
+    enough_pairs = true;
     energy -= sum * sum / count;
     delayed_energy -= delayed_sum * delayed_sum / count;
     const float min_energy = min_variance_db2 * count;
     if (energy >= min_energy && delayed_energy >= min_energy) {
+      enough_variance = true;
       correlation[lag] = (dot - sum * delayed_sum / count) /
                          std::sqrt(energy * delayed_energy);
     }
@@ -271,6 +283,10 @@ RssiRpmEstimator::Result RssiRpmEstimator::analyze(
 
   if (output)
     std::copy(correlation.begin(), correlation.end(), output);
+  if (!enough_pairs)
+    return {0, 0, Status::MissingData};
+  if (!enough_variance)
+    return {0, 0, Status::LowVariance};
 
   const auto is_peak = [&correlation](int lag) {
     return correlation[lag - 1] != unavailable_correlation &&
@@ -320,5 +336,5 @@ RssiRpmEstimator::Result RssiRpmEstimator::analyze(
   const float middle = correlation[selected];
   const float right = correlation[selected + 1];
   const float offset = 0.5f * (left - right) / (left - 2 * middle + right);
-  return {60000.0f / (selected + offset), middle};
+  return {60000.0f / (selected + offset), middle, Status::Tracking};
 }

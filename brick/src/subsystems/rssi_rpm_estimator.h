@@ -6,12 +6,17 @@
 class RssiRpmEstimator {
 public:
   static constexpr int max_lag = 155;
+  enum class Status : uint8_t {
+    Warmup, LowPacketRate, LowVariance, MissingData, NoPeak,
+    Confirming, Tracking, Holding, Stale
+  };
   struct Diagnostics {
     float fast_rpm = 0, long_rpm = 0, correlation = 0;
     uint32_t timestamp_us = 0;
     uint16_t comparison_samples = 250, min_lag = 9, max_lag = 155;
     uint8_t mode = 0; // 0 acquisition, 1 tracking, 2 transient.
     bool hint_used = false;
+    Status status = Status::Warmup;
   };
 
   void add_sample(uint32_t timestamp_us, int rssi_dbm);
@@ -40,7 +45,10 @@ private:
     uint32_t packet_count;
     bool valid;
   };
-  struct Result { float rpm = 0, correlation = 0; };
+  struct Result {
+    float rpm = 0, correlation = 0;
+    Status status = Status::NoPeak;
+  };
   void push(float rssi, bool valid = true);
   Result analyze(int samples, int first, int last, float preferred_rpm,
                  float *output = nullptr) const;
