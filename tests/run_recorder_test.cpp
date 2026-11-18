@@ -1,5 +1,6 @@
 #include "../brick/src/subsystems/run_recorder.h"
 #include "../sender_test/DumpReceiver.h"
+#include "../brick/src/subsystems/storage_gate.h"
 #include <LittleFS.h>
 #include <cassert>
 #include <map>
@@ -268,5 +269,50 @@ int main() {
   for (unsigned i = 0; i < 10; ++i) { host_ms += 10; recorder->update(robot, true); }
   assert(std::any_of(messages[&robot].begin(), messages[&robot].end(),
       [](const auto &packet) { return packet[3] == uint8_t(RunDump::Message::Begin); }));
+
+  // Ready-at-zero is not enough: pending LED/RMT work must be acknowledged
+  // idle by the fast task before a single filesystem operation is permitted.
+  recorder->request('x');
+  Serial.room = 64;
+  recorder->update(robot, true);
+  recorder.reset();
+  host_files.clear();
+  recorder = std::make_unique<RunRecorder>();
+  recorder->begin();
+  for (unsigned i = 0; i < RunDump::capacity; ++i)
+    recorder->add_rssi(-65, i * 1000);
+  recorder->request('s');
+  StorageGate gate;
+  operations = host_flash_operations;
+  host_motion = true; // Model peripheral activity despite zero motor power.
+  const auto guarded_step = [&](bool no_command) {
+    host_ms += 10;
+    gate.request(no_command && recorder->filesystem_pending());
+    recorder->update(robot, no_command && gate.parked());
+  };
+  for (unsigned i = 0; i < 300; ++i)
+    guarded_step(true);
+  assert(recorder->filesystem_pending() && !gate.parked());
+  assert(host_flash_operations == operations);
+  // A stale park ACK after a new drive command cannot unlock the filesystem.
+  const auto old_token = gate.token();
+  guarded_step(false);
+  gate.acknowledge(old_token);
+  guarded_step(true);
+  assert(!gate.parked());
+  for (unsigned i = 0; i < 50; ++i)
+    guarded_step(true);
+  assert(host_flash_operations == operations);
+  // Simulate completion of the final zero frames and LED transaction.
+  gate.acknowledge(gate.token());
+  host_motion = false;
+  for (unsigned i = 0; i < 200; ++i)
+    guarded_step(true);
+  assert(!recorder->filesystem_pending());
+  const auto &parked_file = host_files.at("/run0.bin");
+  std::memcpy(&header, parked_file.data(), sizeof(header));
+  assert(header.count == RunDump::capacity);
+  assert((RunDump::crc32(UINT32_MAX, parked_file.data() + sizeof(header),
+                        parked_file.size() - sizeof(header)) ^ UINT32_MAX) == header.crc);
 
 }

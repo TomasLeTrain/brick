@@ -56,7 +56,15 @@ void RunRecorder::mount() {
       latest_slot = slot;
     }
   }
-  status("filesystem ready; s saves recent history");
+  if (latest_slot < 0) {
+    status("filesystem ready; no saved snapshot, s captures recent history");
+  } else {
+    char message[100];
+    std::snprintf(message, sizeof(message), "filesystem ready; saved generation=%lu records=%lu",
+                  static_cast<unsigned long>(latest.generation),
+                  static_cast<unsigned long>(latest.count));
+    status(message);
+  }
 }
 
 void RunRecorder::begin() {
@@ -120,7 +128,7 @@ void RunRecorder::request(char command) {
       break;
     }
     format_requested = true;
-    status("format queued until motor outputs stop");
+    status("format queued until motor/LED task idle");
     break;
   default: break;
   }
@@ -148,7 +156,7 @@ void RunRecorder::start_save() {
   if (phase != CapturePhase::Rolling) {
     // Keep the existing trigger-time snapshot intact.
     write_failed = false;
-    status("snapshot already captured; flash save waits for stopped motor outputs");
+    status("snapshot already captured; flash save waits for motor/LED task idle");
     return;
   }
   if (!count) {
@@ -162,7 +170,7 @@ void RunRecorder::start_save() {
   saved = paused = 0;
   write_failed = false;
   phase = CapturePhase::Preparing;
-  status("captured in RAM; flash save queued until motor outputs stop");
+  status("captured in RAM; flash save queued until motor/LED task idle");
 }
 
 void RunRecorder::prepare_step() {
@@ -180,7 +188,7 @@ void RunRecorder::prepare_step() {
     pending.paused_samples = paused;
     saved = 0;
     phase = CapturePhase::Waiting;
-    status(mounted ? "RAM snapshot ready; flash save waits for stopped motor outputs"
+    status(mounted ? "RAM snapshot ready; flash save waits for motor/LED task idle"
                    : "RAM snapshot ready; storage unavailable, p/e can export");
   }
 }
@@ -215,8 +223,15 @@ void RunRecorder::finish_save(bool success) {
     }
   }
   write_failed = !success;
-  status(success ? "saved; p prints CSV, e exports through sender"
-                 : "save failed; RAM and previous flash snapshot retained, s retries");
+  if (success) {
+    char message[100];
+    std::snprintf(message, sizeof(message), "saved generation=%lu records=%lu; p prints CSV, e exports through sender",
+                  static_cast<unsigned long>(latest.generation),
+                  static_cast<unsigned long>(latest.count));
+    status(message);
+  } else {
+    status("save failed; RAM and previous flash snapshot retained, s retries");
+  }
 }
 
 void RunRecorder::save_step() {
@@ -391,7 +406,7 @@ void RunRecorder::radio_step(NowPair &link) {
   const auto &header = ram_export ? pending : latest;
   if (!ram_export && !storage_idle_now) {
     if (!radio_restart)
-      status("radio export paused; waiting for zero motor commands and outputs; x cancels");
+      status("radio export paused; waiting for motor/LED task idle; x cancels");
     radio_restart = true;
     return;
   }
@@ -406,7 +421,7 @@ void RunRecorder::radio_step(NowPair &link) {
     radio_export = false;
     export_file.close();
     export_requested = 'e';
-    status("restarting flash export after motor outputs stopped");
+    status("restarting flash export after motor/LED task parked");
     return;
   }
   if (!link.connected()) {
@@ -538,7 +553,7 @@ void RunRecorder::update(NowPair &link, bool storage_idle) {
       export_wait = wait;
       switch (wait) {
       case ExportWait::Preparing: status("export waiting for RAM checksum; x cancels"); break;
-      case ExportWait::Motors: status("export waiting for zero motor commands and outputs for 200 ms; x cancels"); break;
+      case ExportWait::Motors: status("export waiting for motor/LED task idle for 200 ms; x cancels"); break;
       case ExportWait::Link: status("export waiting for sender ESP-NOW connection; x cancels"); break;
       case ExportWait::SerialOutput: status("export waiting for robot serial output; x cancels"); break;
       case ExportWait::None: break;

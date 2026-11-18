@@ -3,10 +3,24 @@
 #include "src/subsystems/led.h"
 #include "src/subsystems/melt.h"
 #include <Wire.h>
+#include <esp_system.h>
 
 Robot::Robot() {}
 
 void Robot::begin() {
+  const esp_reset_reason_t reset = esp_reset_reason();
+  const char *reason = "other";
+  switch (reset) {
+  case ESP_RST_POWERON: reason = "power-on"; break;
+  case ESP_RST_SW: reason = "software"; break;
+  case ESP_RST_PANIC: reason = "panic"; break;
+  case ESP_RST_INT_WDT: reason = "interrupt-watchdog"; break;
+  case ESP_RST_TASK_WDT: reason = "task-watchdog"; break;
+  case ESP_RST_WDT: reason = "watchdog"; break;
+  case ESP_RST_BROWNOUT: reason = "brownout"; break;
+  default: break;
+  }
+  Serial.printf("# boot reset_reason=%d (%s)\n", int(reset), reason);
   // TODO: check for any begin errors and report with leds
   leds.set_brightness(30);
 
@@ -216,13 +230,6 @@ void Robot::general_update() {
     if (connected == ConnectionState::NetworkDisconnect) {
       if (!comms.get_recorder().printing())
         Serial.println("no controller thingy");
-      leds.leds_on_no_controller();
-    } else if (connected == ConnectionState::ControllerDisconnect) {
-      leds.leds_on_controller_stale();
-    } else if (connected == ConnectionState::AccelDisconnect) {
-      leds.leds_on_rgb(0, 255, 0);
-    } else if (connected == ConnectionState::SpinSwitchOff) {
-      leds.leds_on_switch_off();
     }
   }
 
@@ -263,7 +270,10 @@ void Robot::general_update() {
   // drive intent (including tank movement) and the motor task's zero ACK.
   const bool no_drive_command = connected != ConnectionState::Ready ||
                                 !melt.has_motor_command();
-  comms.update_recorder(!arming && no_drive_command && !motor_active.load());
+  storage_gate.request(!arming && no_drive_command &&
+                       comms.get_recorder().filesystem_pending());
+  comms.update_recorder(!arming && no_drive_command && !motor_active.load() &&
+                        storage_gate.parked());
 
   // perform every 10 msec
   vTaskDelay(10);
@@ -279,6 +289,21 @@ void Robot::motor_update() {
            !motor_max_gap_us.compare_exchange_weak(maximum, gap)) {}
   }
   previous_us = now_us;
+  const uint32_t storage_token = storage_gate.token();
+  if (!arming && StorageGate::requested(storage_token)) {
+    if (!storage_gate.acknowledged(storage_token)) {
+      left_motor.send(0);
+      right_motor.send(0);
+      motor_active.store(false);
+      // Finish all queued peripheral transactions before flash can disable
+      // caches/interrupts. No RMT calls follow the ACK until parking is revoked.
+      if (left_motor.wait_tx_idle(20) && right_motor.wait_tx_idle(20) &&
+          leds.wait_idle(20))
+        storage_gate.acknowledge(storage_token);
+    }
+    vTaskDelay(1);
+    return;
+  }
   if (arming) {
     if (!comms.get_recorder().printing())
       Serial.println("arming");
@@ -314,6 +339,20 @@ void Robot::motor_update() {
     left_motor.send(0);
     right_motor.send(0);
     motor_active.store(false);
+    // Keep every runtime LED/RMT call on this task, including switch-off and
+    // disconnect indications. The general task must not submit after park ACK.
+    static uint32_t last_status_led_us = 0;
+    if (now_us - last_status_led_us >= 10000) {
+      last_status_led_us = now_us;
+      if (connected == ConnectionState::NetworkDisconnect)
+        leds.leds_on_no_controller();
+      else if (connected == ConnectionState::ControllerDisconnect)
+        leds.leds_on_controller_stale();
+      else if (connected == ConnectionState::AccelDisconnect)
+        leds.leds_on_rgb(0, 255, 0);
+      else if (connected == ConnectionState::SpinSwitchOff)
+        leds.leds_on_switch_off();
+    }
   }
 
   // perform every msec

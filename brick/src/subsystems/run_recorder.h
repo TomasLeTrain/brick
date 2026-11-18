@@ -12,6 +12,8 @@ public:
   void add_state(const RunDump::Record &state);
   void request(char command);
   void on_message(const uint8_t *data, size_t length);
+  // storage_idle means no drive request AND the fast task has parked after
+  // draining its peripheral queues. Zero commanded motor power alone is not enough.
   void update(NowPair &link, bool storage_idle);
   bool printing() const {
     return serial_export.load() || serial_tail_pending.load() || status_output_active.load();
@@ -19,6 +21,14 @@ public:
   // Called on the general task, before it queues best-effort telemetry.
   bool radio_pending() const {
     return radio_export || export_requested == 'e' || status_pending;
+  }
+  bool filesystem_pending() const {
+    const bool exporting = serial_export || radio_export || export_requested;
+    return export_close_pending ||
+        (!exporting && (format_requested || phase == CapturePhase::Writing ||
+          (phase == CapturePhase::Waiting && mounted && !write_failed))) ||
+        (phase == CapturePhase::Rolling && export_requested) ||
+        (!ram_export && (serial_export || radio_export));
   }
 
 private:

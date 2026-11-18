@@ -69,6 +69,11 @@ c++ -std=c++17 -O2 -Itests/host -Ibrick tests/comms_export_test.cpp \
     -o /tmp/brick-comms-export-test
 /tmp/brick-comms-export-test
 /tmp/brick-comms-export-test 20
+c++ -std=c++17 -O2 tests/storage_gate_test.cpp -o /tmp/brick-storage-gate-test
+/tmp/brick-storage-gate-test
+c++ -std=c++17 -O2 -Itests/host tests/led_buffer_test.cpp \
+    brick/src/subsystems/led.cpp -o /tmp/brick-led-test
+/tmp/brick-led-test
 ```
 
 The communication regression compiles the real Comms, recorder and NowPair
@@ -111,7 +116,8 @@ this covers roughly 1.8 seconds before the trigger. The version-3 buffer uses
 168 KiB RAM.
 
 Toggle controller SWB from high to low to capture the recent history. Flash
-persistence follows automatically after motor commands and outputs are zero.
+persistence follows automatically after motor commands and outputs are zero
+and the fast task has parked its peripheral work.
 Alternatively send `s` over either board's serial connection. An optional
 active-low GPIO button can be selected with `DUMP_BUTTON_PIN` in
 `brick/config.h`. Leave it at `-1` to use SWB and serial commands.
@@ -134,10 +140,10 @@ partition. It cannot create a missing entry in the partition table.
 On a new or incompatible filesystem, turn the spin switch off and send lowercase
 `f` through either board's serial monitor at 115200 baud. In Arduino IDE,
 enter `f` in the Serial Monitor input and press Send/Enter. Formatting erases
-that filesystem's contents. The robot reports `format queued until motor outputs stop`
+that filesystem's contents. The robot reports `format queued until motor/LED task idle`
 and then `format complete; filesystem ready`, or an error. The sender forwards
-the final result. On startup, `filesystem ready; s saves recent history` confirms
-a successful mount. The firmware continues operating after a failed mount.
+the final result. On startup, `filesystem ready` confirms a successful mount. If a saved file
+exists, its generation and record count are reported. The firmware continues operating after a failed mount.
 
 Firmware versions before this fix only accept `f` on the robot's serial port
 and give no confirmation after a successful format. Update both sketches to
@@ -148,18 +154,31 @@ small RAM-only steps while motor and radio updates continue. The snapshot can
 be exported using `p` or `e` while the robot is driving. Repeated `s` commands
 report that the same snapshot is retained.
 
-Flash writing starts automatically once the current drive commands and the motor
-task's acknowledged outputs have both been zero for 200 ms, after arming finishes.
+Flash access requires a fast-task parking handshake, after arming finishes and
+current drive commands are zero. The motor task sends zero, drains both DShot
+channels and the LED RMT channel, and acknowledges the current parking request.
+It then sleeps without submitting motor/LED transactions. Only after that ACK
+has remained eligible for 200 ms can the recorder access the filesystem. A new
+drive command revokes parking and pauses filesystem work. Delayed ACKs from an
+earlier request cannot authorize a later save.
 This includes a neutral controller with SWA still enabled. Zero spin throttle
 can select tank mode, so center the movement stick too, or turn SWA off.
-File-backed exports and formatting also wait for this idle state. Internal flash
+Every runtime LED transmission now belongs to the motor task, and its encoded
+buffer is retained until the previous transaction completes. LEDs hold their
+last frame while the task is parked. File-backed exports and formatting use
+the same handshake. RAM export can run without parking the fast task. Internal flash
 operations can suspend both ESP32 cores, so writing flash while driving can interrupt DShot output even when
 writes are split into small pieces. RAM exports avoid those operations.
 
+A `saved generation=... records=...` message confirms a complete validated file.
 After persistence succeeds, rolling capture resumes. The `paused` count reports
 events excluded while the snapshot is frozen. If power is removed before the
 deferred save finishes, that RAM snapshot is lost. RAM export provides a way to
 retrieve it first. A failed write retains the RAM snapshot, and `s` retries it.
+A restart before persistence loses the RAM snapshot, but the previous validated
+flash file remains available. Re-exporting that older generation does not
+recover the lost capture. Boot prints `# boot reset_reason=...` with a readable
+watchdog/panic/brownout reason to distinguish a reboot from a link outage.
 Two files alternate between saves. A versioned header, exact length and CRC
 identify a complete snapshot, allowing the previous complete file to be
 recovered after an interrupted write. Version-1 and version-2 snapshots remain

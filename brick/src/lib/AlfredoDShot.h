@@ -76,6 +76,8 @@ public:
   //
   // value: 0 = stop, 48..2047 = throttle. 1..47 are commands - use command().
   bool send(uint16_t value);
+  // Used by the motor task before handing flash access to the general task.
+  bool wait_tx_idle(uint32_t timeout_ms);
   bool sendThrottle(float throttle); // 0.0 .. 1.0 -> 48..2047
   // Signed throttle percent to a DShot value for an ESC in 3D mode:
   //   0            stop

@@ -6,6 +6,7 @@
 #include "src/subsystems/led.h"
 #include "src/subsystems/melt.h"
 #include "src/subsystems/accelerometer.h"
+#include "src/subsystems/storage_gate.h"
 
 enum ConnectionState {
   NetworkDisconnect,
@@ -44,6 +45,7 @@ private:
   std::atomic<bool> arming{true};
   std::atomic<bool> motor_active{true};
   std::atomic<uint32_t> motor_max_gap_us{0};
+  StorageGate storage_gate;
 
   // only applies when not arming
   // should only be true when no issues are present
