@@ -30,6 +30,7 @@ RPM_STATUS = {
     0: "warming up", 1: "packet rate too low", 2: "RSSI variance too low",
     3: "missing sample coverage", 4: "no credible period",
     5: "confirming period", 6: "tracking", 7: "holding previous RPM", 8: "stale",
+    9: "period jump rejected",
 }
 PANELS = (
     ("RSSI (dBm)", ("rssi_dbm",)),

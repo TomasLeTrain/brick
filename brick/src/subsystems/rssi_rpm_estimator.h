@@ -8,7 +8,7 @@ public:
   static constexpr int max_lag = 155;
   enum class Status : uint8_t {
     Warmup, LowPacketRate, LowVariance, MissingData, NoPeak,
-    Confirming, Tracking, Holding, Stale
+    Confirming, Tracking, Holding, Stale, JumpRejected
   };
   struct Diagnostics {
     float fast_rpm = 0, long_rpm = 0, correlation = 0;
@@ -35,6 +35,7 @@ public:
   void correlation_curve(int samples, int first, int last, float *curve) const;
 
 private:
+  friend struct RssiRpmEstimatorTestAccess; // Replay a recorded lock with live RSSI history.
   static constexpr int sample_interval_us = 1000;
   static constexpr int comparison_samples = 250;
   static constexpr int min_lag = 18, first_lag = 9;
@@ -50,6 +51,7 @@ private:
     Status status = Status::NoPeak;
   };
   void push(float rssi, bool valid = true);
+  bool plausible_change(float candidate_rpm, uint32_t now_ms) const;
   Result analyze(int samples, int first, int last, float preferred_rpm,
                  float *output = nullptr) const;
 
@@ -62,6 +64,8 @@ private:
   bool analyzed = false, long_analyzed = false, command_seen = false;
   bool transient_started = false, locked = false;
   unsigned agreeing_estimates = 0, stable_long_estimates = 0;
+  unsigned conflicting_long_estimates = 0;
+  float conflicting_long_rpm = 0;
   float previous_candidate_rpm = 0, previous_long_rpm = 0;
   float command_throttle = 0, expected_rpm = 0, last_rssi = 0;
   float estimated_rpm = 0, packet_rate_hz = 0;

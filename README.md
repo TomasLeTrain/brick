@@ -31,11 +31,31 @@ windows enables a 300 ms transient mode with a two-period window bounded to
 tracking result can hold the previous RPM for up to 150 ms, while a packet
 outage resets it after 50 ms.
 
+Global peak selection prefers the earliest credible period. Normally its score
+must be within 0.08 of the strongest peak and at least 0.55. An earlier peak
+with score at least 0.75 can also qualify when peaks near twice and three times
+its interpolated period support the same cycle. Alternating weak/strong lobes
+are excluded from this extra rule to avoid selecting half a rotation.
+
+Tracking rejects implausible speed steps instead of slewing toward them. The
+allowed RPM difference is the smaller of 20% of the last accepted RPM and
+2.5% plus 6000 RPM/s over elapsed time, capped at 50 ms. This bounds a single
+update without estimating acceleration. A rejected candidate holds the last
+valid estimate briefly, then expires to zero if no credible estimate arrives.
+
+The global analysis independently checks for a persistent integer-repeat lock.
+Three strong, consistent global results indicating a different 2–8-times
+period invalidate the local lock and start confirmed reacquisition. This can
+recover even if feedforward is unavailable. During reacquisition RPM is zero,
+meaning unavailable, until the new period has been confirmed.
+
 The steady RPM expected from the calibrated feedforward is a soft period hint.
 It is enabled after at least 600 ms of stable throttle, several stable long
-estimates, and agreement between the windows. It can resolve two-lobe ambiguity
+estimates, and signal evidence. It can resolve two-lobe ambiguity
 among near-equal correlation peaks within 20% of the calibrated RPM. Signal
-evidence is required. Throttle does not directly replace measured RPM.
+evidence is required. A hint cannot bypass continuity/confirmation checks or
+directly replace measured RPM. Disagreement with a wrong local lock no longer
+disables the global hint indefinitely.
 
 The implementation estimates speed from RSSI periodicity. Its sampling and
 autocorrelation approach was inspired by
@@ -57,6 +77,9 @@ c++ -std=c++17 -O2 -Ibrick/src/subsystems tests/rssi_rpm_estimator_test.cpp \
 c++ -std=c++17 -O2 -Ibrick/src/subsystems tests/rssi_tracking_test.cpp \
     brick/src/subsystems/rssi_rpm_estimator.cpp -o /tmp/brick-tracking-test
 /tmp/brick-tracking-test
+c++ -std=c++17 -O2 -Ibrick/src/subsystems tests/rssi_continuity_test.cpp \
+    brick/src/subsystems/rssi_rpm_estimator.cpp -o /tmp/brick-continuity-test
+/tmp/brick-continuity-test
 c++ -std=c++17 -O2 -Itests/host -Ibrick tests/run_recorder_test.cpp \
     brick/src/subsystems/run_recorder.cpp -o /tmp/brick-recorder-test
 /tmp/brick-recorder-test
@@ -231,7 +254,7 @@ the visualizer.
 
 `rpm_status` values are 0 warm-up, 1 low packet rate, 2 low RSSI variance,
 3 missing sample coverage, 4 no credible period, 5 confirming a period,
-6 tracking, 7 holding the previous estimate and 8 stale. Older exports use -1
+6 tracking, 7 holding the previous estimate, 8 stale and 9 rejected speed jump. Older exports use -1
 for unavailable status fields. The plotter shows the reason at the time cursor.
 A zero RPM with low RSSI variance is an unavailable measurement. Raw RSSI still
 needs visible periodic variation while the robot is spinning.

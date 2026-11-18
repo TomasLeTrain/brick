@@ -14,6 +14,7 @@ constexpr float peak_tolerance = 0.08f;
 constexpr float unavailable_correlation = -2;
 constexpr float max_relative_change = 0.12f;
 constexpr unsigned estimates_to_lock = 3;
+constexpr float max_rpm_change_per_ms = 6; // 6000 RPM/s, plus measurement tolerance.
 } // namespace
 
 void RssiRpmEstimator::reset() {
@@ -22,6 +23,8 @@ void RssiRpmEstimator::reset() {
   analyzed = long_analyzed = locked = false;
   command_seen = transient_started = false;
   agreeing_estimates = stable_long_estimates = 0;
+  conflicting_long_estimates = 0;
+  conflicting_long_rpm = 0;
   previous_candidate_rpm = previous_long_rpm = 0;
   estimated_rpm = packet_rate_hz = expected_rpm = 0;
   long_result = {};
@@ -111,10 +114,8 @@ void RssiRpmEstimator::update(uint32_t now_ms) {
 
   const bool quiet_command = command_seen && now_ms - command_changed_ms >= 600;
   if (!long_analyzed || last_grid_us - last_long_us >= analysis_interval_us) {
-    const bool consistent = !locked || diagnostic.fast_rpm <= 0 ||
-        std::abs(diagnostic.fast_rpm - long_result.rpm) < 0.08f * long_result.rpm;
     diagnostic.hint_used = quiet_command && expected_rpm > 0 &&
-        (stable_long_estimates >= 3 || diagnostic.hint_used) && consistent;
+        (stable_long_estimates >= 3 || diagnostic.hint_used);
     long_result = analyze(comparison_samples, first_lag, max_lag,
                           diagnostic.hint_used ? expected_rpm : 0);
     diagnostic.long_rpm = long_result.rpm;
@@ -126,13 +127,30 @@ void RssiRpmEstimator::update(uint32_t now_ms) {
     last_long_us = last_grid_us;
     long_analyzed = true;
 
-    // A settled feedforward hint may resolve a different fundamental from
-    // the same strong long-window peaks, outside the local tracking search.
-    if (locked && diagnostic.hint_used && long_result.rpm > 0 &&
-        long_result.correlation >= 0.70f &&
-        std::abs(long_result.rpm - estimated_rpm) > 0.25f * estimated_rpm) {
-      estimated_rpm = long_result.rpm;
-      last_good_ms = now_ms;
+    // A local search can track an integer repeat forever (e.g. the fifth
+    // peak in log9). Validate it against independent global analyses even if
+    // the local correlation is excellent. Reacquire rather than jumping RPM.
+    bool harmonic_conflict = false;
+    if (locked && long_result.rpm > 0 && long_result.correlation >= 0.75f) {
+      const float ratio = std::max(long_result.rpm, estimated_rpm) /
+                          std::min(long_result.rpm, estimated_rpm);
+      const int multiple = int(std::lround(ratio));
+      harmonic_conflict = multiple >= 2 && multiple <= 8 &&
+          std::abs(ratio - multiple) < 0.08f * multiple;
+    }
+    conflicting_long_estimates = harmonic_conflict
+        ? (conflicting_long_rpm > 0 &&
+           std::abs(long_result.rpm - conflicting_long_rpm) < 0.05f * conflicting_long_rpm
+              ? conflicting_long_estimates + 1 : 1) : 0;
+    conflicting_long_rpm = harmonic_conflict ? long_result.rpm : 0;
+    if (conflicting_long_estimates >= estimates_to_lock) {
+      estimated_rpm = 0;
+      locked = false;
+      agreeing_estimates = 0;
+      previous_candidate_rpm = 0;
+      conflicting_long_estimates = 0;
+      transient_started = true;
+      transient_started_ms = now_ms;
     }
     if (!locked) {
       agreeing_estimates =
@@ -174,7 +192,9 @@ void RssiRpmEstimator::update(uint32_t now_ms) {
   diagnostic.correlation = fast.correlation;
   diagnostic.status = fast.status;
 
-  if (fast.rpm > 0 && fast.correlation >= 0.60f) {
+  const bool confident_fast = fast.rpm > 0 && fast.correlation >= 0.60f;
+  const bool jump_rejected = confident_fast && !plausible_change(fast.rpm, now_ms);
+  if (confident_fast && !jump_rejected) {
     estimated_rpm = fast.rpm;
     diagnostic.status = Status::Tracking;
     last_good_ms = now_ms;
@@ -185,6 +205,7 @@ void RssiRpmEstimator::update(uint32_t now_ms) {
     }
   } else if (!transient && long_result.rpm > 0 &&
              long_result.correlation >= 0.70f &&
+             plausible_change(long_result.rpm, now_ms) &&
              std::abs(long_result.rpm - estimated_rpm) < 0.08f * estimated_rpm) {
     estimated_rpm = long_result.rpm;
     diagnostic.status = Status::Tracking;
@@ -199,8 +220,18 @@ void RssiRpmEstimator::update(uint32_t now_ms) {
     agreeing_estimates = 0;
     diagnostic.status = Status::Stale;
   } else {
-    diagnostic.status = Status::Holding;
+    diagnostic.status = jump_rejected ? Status::JumpRejected : Status::Holding;
   }
+}
+
+bool RssiRpmEstimator::plausible_change(float candidate_rpm, uint32_t now_ms) const {
+  // This is a gate, not a ramp or an acceleration predictor: never fabricate
+  // intermediate RPMs on the way to a dubious correlation peak. Cap elapsed
+  // time so repeated rejection cannot eventually authorize a harmonic jump.
+  const float elapsed_ms = std::min(now_ms - last_good_ms, uint32_t(50));
+  const float allowed = std::min(0.20f * estimated_rpm,
+      0.025f * estimated_rpm + max_rpm_change_per_ms * elapsed_ms);
+  return std::abs(candidate_rpm - estimated_rpm) <= allowed;
 }
 
 void RssiRpmEstimator::correlation_curve(int samples, int first, int last,
@@ -303,10 +334,39 @@ RssiRpmEstimator::Result RssiRpmEstimator::analyze(
   // Choose among strong peaks. A prior can break a near-equal correlation
   // tie, but cannot create a candidate that the signal does not support.
   const float threshold = std::max(min_correlation, strongest - peak_tolerance);
+  const bool global_search = first == first_lag && last == max_lag;
+  const auto peak_period = [&correlation](int lag) {
+    const float left = correlation[lag - 1], middle = correlation[lag];
+    const float right = correlation[lag + 1];
+    return lag + 0.5f * (left - right) / (left - 2 * middle + right);
+  };
+  const auto repeated_peak = [&](float period, int multiple) {
+    const float expected = period * multiple;
+    const float tolerance = std::max(2.0f, 0.03f * expected);
+    float best = unavailable_correlation;
+    for (int lag = std::max(first, int(std::ceil(expected - tolerance)));
+         lag <= std::min(last, int(std::floor(expected + tolerance))); ++lag) {
+      if (is_peak(lag))
+        best = std::max(best, correlation[lag]);
+    }
+    return best;
+  };
   int selected = 0;
   float distance = 1e30f;
   for (int lag = first; lag <= last; ++lag) {
-    if (!is_peak(lag) || correlation[lag] < threshold)
+    if (!is_peak(lag))
+      continue;
+    bool repeated_fundamental = false;
+    if (global_search && correlation[lag] >= 0.75f && correlation[lag] < threshold) {
+      const float period = peak_period(lag);
+      const float twice = repeated_peak(period, 2), thrice = repeated_peak(period, 3);
+      const float support = std::max(0.65f, correlation[lag] - 0.10f);
+      // Prefer an earlier well-supported cycle even when a later repeat has
+      // a higher score. Alternating weak/strong lobes favour the full period.
+      repeated_fundamental = twice >= support && thrice >= support &&
+          twice - std::max(correlation[lag], thrice) <= 0.10f;
+    }
+    if (correlation[lag] < threshold && !repeated_fundamental)
       continue;
     if (lag < min_lag)
       return {};
@@ -318,7 +378,6 @@ RssiRpmEstimator::Result RssiRpmEstimator::analyze(
       // During global acquisition a feedforward hint can resolve a two-lobe
       // ambiguity. It cannot pull a good measurement to arbitrary multiples.
       const float ratio = float(selected) / lag;
-      const bool global_search = first == first_lag && last == max_lag;
       const bool compatible = !global_search ||
           (error < std::log(1.20f) && (ratio > 0.90f ||
                                      (ratio > 0.45f && ratio < 0.55f)));
