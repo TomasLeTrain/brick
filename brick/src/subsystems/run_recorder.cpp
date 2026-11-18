@@ -367,9 +367,10 @@ void RunRecorder::on_message(const uint8_t *data, size_t length) {
   waiting_ack = false;
   retries = 0;
   last_export_progress_ms = millis();
-  if (sending_begin)
+  if (sending_begin) {
     sending_begin = false;
-  else if (sending_end) {
+    status("sender acknowledged dump header; sending records");
+  } else if (sending_end) {
     // ACK callbacks only change RAM state. Closing a file waits for update()
     // to confirm that motor outputs are still disabled.
     radio_complete = true;
@@ -449,6 +450,8 @@ void RunRecorder::radio_step(NowPair &link) {
     last_send_ms = millis() - 200;
   }
   if (link.sendData(radio_buffer, radio_size)) {
+    if (sending_begin && retries == 0)
+      status("dump header queued for radio; awaiting sender ACK");
     last_send_ms = millis();
     ++retries;
   }
@@ -510,8 +513,11 @@ void RunRecorder::update(NowPair &link, bool storage_idle) {
       request(command);
   }
   if ((export_requested || serial_export || radio_export) &&
-      millis() - last_export_progress_ms >= export_timeout_ms)
-    stop_export("export made no progress for 10 s; snapshot retained, p/e retries");
+      millis() - last_export_progress_ms >= export_timeout_ms) {
+    stop_export(radio_export && waiting_ack && !radio_restart && retries == 0
+        ? "radio TX queue blocked for 10 s; snapshot retained, e retries"
+        : "export made no progress for 10 s; snapshot retained, p/e retries");
+  }
   if (export_close_pending && storage_idle_now) {
     export_file.close();
     export_close_pending = false;

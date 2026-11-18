@@ -16,6 +16,10 @@ public:
   bool printing() const {
     return serial_export.load() || serial_tail_pending.load() || status_output_active.load();
   }
+  // Called on the general task, before it queues best-effort telemetry.
+  bool radio_pending() const {
+    return radio_export || export_requested == 'e' || status_pending;
+  }
 
 private:
   void append(const RunDump::Record &record);

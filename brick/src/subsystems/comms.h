@@ -35,4 +35,5 @@ private:
   bool switch_seen = false, last_swb = false;
   ThrottlePacket current_throttle{};
   uint32_t last_throttle_ms = 0;
+  uint32_t last_telemetry_ms = 0;
 };

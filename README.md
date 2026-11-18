@@ -8,6 +8,12 @@ throttle packets every 20 ms. Heartbeat and throttle traffic have priority over
 probes. The sender services the link every millisecond on ESP32-S3 and uses
 6 Mbps for unicast. The actual receive rate depends on the radio link.
 
+Robot telemetry is best effort, limited to 20 Hz, and yields its shared transmit
+queue to recorder status and dump packets. It pauses while a radio export is
+queued or active. Heartbeat, throttle and sender RSSI traffic continue. This
+prevents per-loop telemetry from claiming every freed queue slot before an
+export packet can enter the queue.
+
 RSSI is the robot's RPM source. The current robot configuration disables the
 accelerometer, so its raw acceleration fields are zero. Watch serial output for `rpm`, `fast_rpm`,
 `long_rpm`, `throttle`, and `rssi_hz`. An RPM of zero means the signal has
@@ -57,7 +63,19 @@ c++ -std=c++17 -O2 -Itests/host -Ibrick tests/run_recorder_test.cpp \
 c++ -std=c++17 -O2 -Itests/host tests/melt_idle_test.cpp \
     brick/src/subsystems/melt.cpp brick/src/subsystems/pid.cpp -o /tmp/brick-idle-test
 /tmp/brick-idle-test
+c++ -std=c++17 -O2 -Itests/host -Ibrick tests/comms_export_test.cpp \
+    brick/src/subsystems/comms.cpp brick/src/subsystems/run_recorder.cpp \
+    brick/src/subsystems/rssi_rpm_estimator.cpp brick/src/lib/NowPair.cpp \
+    -o /tmp/brick-comms-export-test
+/tmp/brick-comms-export-test
+/tmp/brick-comms-export-test 20
 ```
+
+The communication regression compiles the real Comms, recorder and NowPair
+scheduler against bounded host queues. It checks full RAM and saved-file
+exports under telemetry/heartbeat contention at 10 ms and 20 ms loop periods,
+including reconnection, retransmissions and payload CRC. The sender-side CSV
+and loss/backpressure tests run separately in `run_recorder_test`.
 
 ## Benchmark on an ESP32
 
@@ -166,7 +184,8 @@ once. Throttle and heartbeat processing continues during export. The sender
 continues RSSI probes while receiving the dump. Serial output is drained
 without blocking the sender's IBus/radio loop. Request
 `e` again after an interrupted transfer. The robot reports why a request is
-waiting, when radio transfer starts, and progress every 128 records. **Radio
+waiting, when radio transfer starts, when its header is queued and acknowledged,
+and progress every 128 records. **Radio
 CSV appears on the sender serial port**, even if `e` was entered on the robot.
 Open the sender serial monitor to drain CSV and let it acknowledge records.
 Use `p` for CSV on the robot instead. Radio export does not require the robot
@@ -174,7 +193,9 @@ serial port to be open.
 
 Queued and active exports expire after 10 seconds without progress, including
 a full transmit queue or unavailable serial output. The existing ACK retry
-limit can fail sooner. No-progress failures and `x` release the busy state
+limit can fail sooner. A `radio TX queue blocked` failure means no retry of the
+current packet could be queued; an ACK timeout means retries were queued but
+not acknowledged. No-progress failures and `x` release the busy state
 without deleting the snapshot. File cleanup waits for idle if drive resumes.
 Additional capture/format requests during an export report busy. Repeated
 capture requests retain the frozen snapshot until it is saved.

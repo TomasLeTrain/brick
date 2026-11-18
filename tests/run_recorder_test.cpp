@@ -217,7 +217,7 @@ int main() {
   blocked_sends.insert(&robot);
   recorder->request('e');
   for (unsigned i = 0; i < 1100; ++i) { host_ms += 10; recorder->update(robot, true); }
-  assert(robot_text.find("export made no progress for 10 s") != std::string::npos);
+  assert(robot_text.find("radio TX queue blocked for 10 s") != std::string::npos);
   blocked_sends.erase(&robot);
   messages[&robot].clear();
   recorder->request('e');

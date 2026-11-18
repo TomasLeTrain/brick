@@ -38,9 +38,18 @@ void Comms::rssiCb(int rssi_dbm, uint32_t timestamp_us, void *arg) {
 }
 
 bool Comms::send(TelemetryPacket *packet) {
+  // NowPair transmits at most one frame per update, including heartbeats.
+  // Per-loop telemetry can fill its shared data queue and claim each freed
+  // slot before the recorder ever gets to queue its first export packet.
+  const uint32_t now_ms = millis();
+  if (recorder.radio_pending() || now_ms - last_telemetry_ms < 50)
+    return false;
   uint8_t data_buffer[NowPair::MAX_PAYLOAD];
   const size_t length = packet->serialize(data_buffer);
-  return peer_link.sendData(data_buffer, length);
+  if (!peer_link.sendData(data_buffer, length))
+    return false;
+  last_telemetry_ms = now_ms;
+  return true;
 }
 
 bool Comms::begin() {
