@@ -259,7 +259,12 @@ python3 tools/plot_dump.py simulation.csv run.csv --save comparison.pdf
 ```
 
 The graph includes raw RSSI, calculated/fast/long RPM, the feedforward steady
-RPM, motor throttle, raw acceleration, estimator update time and packet rate.
+RPM, motor throttle, estimator update time and packet rate. Acceleration fields
+remain readable in older dumps and are omitted from the graph.
+The target is a dashed step trace. Measured `rssi_rpm` is drawn above the fast
+estimate so identical values remain visible. The time cursor shows numeric
+`target_rpm` and `rssi_rpm` from the latest control record. Zero placeholders in
+RSSI-only rows are excluded from those traces and readouts.
 Move the time slider or click a time plot to inspect normalized correlation
 against lag on the right. The tracking and long comparison curves are
 reconstructed from raw packets on the host, including the firmware's grid

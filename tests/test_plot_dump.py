@@ -134,6 +134,25 @@ class PlotDumpTests(unittest.TestCase):
         self.assertTrue(any("tracking" in line.get_label()
                             for line in inspector.curve_axis.lines))
 
+    def test_log7_target_uses_control_rows_and_hides_acceleration(self):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        path = Path(__file__).resolve().parents[1] / "logs/log7.csv"
+        dump = plot_dump.load(path)[-1]
+        states = [row for row in dump.rows if row["kind"] == 2]
+        figure = plot_dump.plot([("log7", dump)], selected_time=.8)
+        self.addCleanup(plt.close, figure)
+        inspector = figure._dump_inspector
+        rpm_axis = next(axis for axis in inspector.axes if axis.get_ylabel() == "RPM")
+        series = {line.get_label(): line for line in rpm_axis.lines}
+        self.assertEqual(list(series["target_rpm"].get_ydata()), [1332] * len(states))
+        self.assertEqual(list(series["rssi_rpm"].get_ydata()),
+                         list(series["fast_rpm"].get_ydata()))
+        self.assertFalse(any("Acceleration" in axis.get_ylabel() for axis in inspector.axes))
+        self.assertTrue(any("target_rpm=1332.0 RPM" in text.get_text()
+                            for text in inspector.curve_axis.texts))
+
 
 if __name__ == "__main__":
     unittest.main()

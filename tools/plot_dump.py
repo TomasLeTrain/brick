@@ -35,7 +35,6 @@ PANELS = (
     ("RSSI (dBm)", ("rssi_dbm",)),
     ("RPM", ("rssi_rpm", "fast_rpm", "long_rpm", "target_rpm", "true_rpm")),
     ("Motor throttle", ("throttle",)),
-    ("Acceleration (g)", ("ax_g", "ay_g", "az_g")),
     ("Timing (µs)", ("estimator_us", "motor_gap_us")),
     ("Packets/s", ("rssi_hz",)),
 )
@@ -265,6 +264,12 @@ class DumpInspector:
                 axis.axvline(60000 / rpm, linestyle="--",
                              label=f"{display}used {rpm:.0f} RPM")
             prior = row.get("target_rpm", 0)
+            if row.get("kind", 0) != 1:
+                values = [f"{field}={row[field]:.1f} RPM"
+                          for field in ("target_rpm", "rssi_rpm")
+                          if math.isfinite(row.get(field, math.nan))]
+                if values:
+                    notes.append(f"{label}: " + ", ".join(values))
             if prior > 0:
                 axis.axvline(60000 / prior, linestyle=":", alpha=.6,
                              label=f"{display}steady prior {prior:.0f} RPM")
@@ -286,7 +291,7 @@ def plot(dumps, start=None, end=None, selected_time=None):
     available = {field for _, dump in dumps for row in dump.rows for field in row}
     panels = [(label, fields) for label, fields in PANELS if available.intersection(fields)]
     if not panels:
-        raise ValueError("no supported RSSI, RPM, acceleration or timing columns")
+        raise ValueError("no supported RSSI, RPM, throttle, packet-rate or timing columns")
     figure = plt.figure(figsize=(15, max(8, len(panels) * 1.55)))
     grid = figure.add_gridspec(len(panels), 2, width_ratios=(1.6, 1),
                               left=.07, right=.98, top=.96, bottom=.11,
@@ -311,7 +316,16 @@ def plot(dumps, start=None, end=None, selected_time=None):
                         points.append((t, value))
                 if points:
                     x, y = zip(*points)
-                    axis.plot(x, y, linewidth=.8, label=f"{label} {field}" if len(dumps) > 1 else field)
+                    style = {"linewidth": .8}
+                    if field == "target_rpm":
+                        style.update(linestyle="--", linewidth=1.5,
+                                     drawstyle="steps-post", zorder=3)
+                    elif field == "rssi_rpm":
+                        style.update(linewidth=1.8, zorder=4)
+                    elif field == "fast_rpm":
+                        style.update(linestyle=":", linewidth=1, alpha=.7)
+                    axis.plot(x, y, label=f"{label} {field}" if len(dumps) > 1 else field,
+                              **style)
         axis.set_ylabel(ylabel)
         axis.grid(alpha=.25)
         if axis.lines:
