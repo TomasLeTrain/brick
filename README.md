@@ -54,6 +54,9 @@ c++ -std=c++17 -O2 -Ibrick/src/subsystems tests/rssi_tracking_test.cpp \
 c++ -std=c++17 -O2 -Itests/host -Ibrick tests/run_recorder_test.cpp \
     brick/src/subsystems/run_recorder.cpp -o /tmp/brick-recorder-test
 /tmp/brick-recorder-test
+c++ -std=c++17 -O2 -Itests/host tests/melt_idle_test.cpp \
+    brick/src/subsystems/melt.cpp brick/src/subsystems/pid.cpp -o /tmp/brick-idle-test
+/tmp/brick-idle-test
 ```
 
 ## Benchmark on an ESP32
@@ -90,7 +93,7 @@ this covers roughly 1.8 seconds before the trigger. The version-3 buffer uses
 168 KiB RAM.
 
 Toggle controller SWB from high to low to capture the recent history. Flash
-persistence follows automatically after drive is disabled.
+persistence follows automatically after motor commands and outputs are zero.
 Alternatively send `s` over either board's serial connection. An optional
 active-low GPIO button can be selected with `DUMP_BUTTON_PIN` in
 `brick/config.h`. Leave it at `-1` to use SWB and serial commands.
@@ -127,10 +130,12 @@ small RAM-only steps while motor and radio updates continue. The snapshot can
 be exported using `p` or `e` while the robot is driving. Repeated `s` commands
 report that the same snapshot is retained.
 
-Flash writing starts automatically once drive is disabled and the motor task
-has acknowledged zero outputs for 200 ms. File-backed exports and formatting
-also wait for this idle state. Internal flash operations can suspend both ESP32
-cores, so writing flash while driving can interrupt DShot output even when
+Flash writing starts automatically once the current drive commands and the motor
+task's acknowledged outputs have both been zero for 200 ms, after arming finishes.
+This includes a neutral controller with SWA still enabled. Zero spin throttle
+can select tank mode, so center the movement stick too, or turn SWA off.
+File-backed exports and formatting also wait for this idle state. Internal flash
+operations can suspend both ESP32 cores, so writing flash while driving can interrupt DShot output even when
 writes are split into small pieces. RAM exports avoid those operations.
 
 After persistence succeeds, rolling capture resumes. The `paused` count reports
@@ -150,7 +155,8 @@ of the same snapshot.
 | `s` | Freeze recent history, queue flash save | Request robot capture |
 | `p` | Print saved CSV here | Request CSV on robot serial |
 | `e` | Export saved data over ESP-NOW | Request export, reconstruct and print CSV here |
-| `f` | Format filesystem with spin switch off | Request robot format |
+| `f` | Format filesystem while idle | Request robot format |
+| `x` | Cancel queued or active export | Cancel receiver and request robot cancellation |
 
 Both CSV routes delimit a complete export with `# dump_begin` and
 `# dump_end`. Save that serial output as `run.csv`. Normal boot/status text can
@@ -159,8 +165,19 @@ acknowledgements, retries and a final CRC check. Duplicate records are printed
 once. Throttle and heartbeat processing continues during export. The sender
 continues RSSI probes while receiving the dump. Serial output is drained
 without blocking the sender's IBus/radio loop. Request
-`e` again after an interrupted transfer. Additional requests during export report busy. Repeated capture requests
-retain the frozen snapshot until it is saved.
+`e` again after an interrupted transfer. The robot reports why a request is
+waiting, when radio transfer starts, and progress every 128 records. **Radio
+CSV appears on the sender serial port**, even if `e` was entered on the robot.
+Open the sender serial monitor to drain CSV and let it acknowledge records.
+Use `p` for CSV on the robot instead. Radio export does not require the robot
+serial port to be open.
+
+Queued and active exports expire after 10 seconds without progress, including
+a full transmit queue or unavailable serial output. The existing ACK retry
+limit can fail sooner. No-progress failures and `x` release the busy state
+without deleting the snapshot. File cleanup waits for idle if drive resumes.
+Additional capture/format requests during an export report busy. Repeated
+capture requests retain the frozen snapshot until it is saved.
 
 The CSV contains raw RSSI, accelerometer values in g, RSSI/control RPM, fast
 and long estimates, steady feedforward RPM, packet rate, commanded motor

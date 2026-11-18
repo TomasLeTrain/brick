@@ -259,8 +259,11 @@ void Robot::general_update() {
   telemetry_packet.micros_timestamp = accel_measurement_micros;
 
   comms.send(&telemetry_packet);
-  comms.update_recorder(!arming && connected != ConnectionState::Ready &&
-                        !motor_active.load());
+  // A neutral controller is idle even with SWA enabled. Check both current
+  // drive intent (including tank movement) and the motor task's zero ACK.
+  const bool no_drive_command = connected != ConnectionState::Ready ||
+                                !melt.has_motor_command();
+  comms.update_recorder(!arming && no_drive_command && !motor_active.load());
 
   // perform every 10 msec
   vTaskDelay(10);

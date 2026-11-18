@@ -14,6 +14,7 @@ HostLittleFS LittleFS;
 std::map<std::string, std::vector<uint8_t>> host_files;
 using Packets = std::vector<std::vector<uint8_t>>;
 std::map<const NowPair *, Packets> messages;
+std::set<const NowPair *> blocked_sends;
 
 // Only the public queue boundary is mocked. Recorder and dump receiver logic
 // compile unchanged against the same NowPair declarations used by firmware.
@@ -24,6 +25,8 @@ NowPair::NowPair(Role role, uint8_t channel, uint32_t heartbeat, uint32_t timeou
       _broadcaster(*this, channel) { _connected = true; }
 void NowPair::onSent(bool) {}
 bool NowPair::sendData(const void *data, size_t length) {
+  if (blocked_sends.count(this))
+    return false;
   const auto *bytes = static_cast<const uint8_t *>(data);
   messages[this].emplace_back(bytes, bytes + length);
   return true;
@@ -171,5 +174,99 @@ int main() {
   }
   assert(sender_text.find("# dump_end") != std::string::npos);
   assert(!flash_receiver.receiving());
+
+  // Radio export must start even if the robot has no USB serial consumer.
+  recorder.reset();
+  recorder = std::make_unique<RunRecorder>();
+  Serial.sink = &robot_text;
+  recorder->begin();
+  messages[&robot].clear();
+  Serial.room = 0;
+  recorder->request('e');
+  for (unsigned i = 0; i < 100; ++i) {
+    host_ms += 10;
+    recorder->update(robot, true);
+  }
+  assert(std::any_of(messages[&robot].begin(), messages[&robot].end(),
+      [](const auto &packet) { return packet[3] == uint8_t(RunDump::Message::Begin); }));
+
+  sender_text.clear();
+  DumpReceiver usb_independent_receiver;
+  for (unsigned i = 0; i < 2500; ++i) {
+    host_ms += 10;
+    Serial.sink = &robot_text;
+    Serial.room = 0;
+    recorder->update(robot, true);
+    auto outgoing = std::move(messages[&robot]);
+    messages[&robot].clear();
+    for (const auto &packet : outgoing)
+      usb_independent_receiver.receive(packet.data(), packet.size());
+    Serial.sink = &sender_text;
+    Serial.room = 64;
+    usb_independent_receiver.update(sender);
+    auto acknowledgements = std::move(messages[&sender]);
+    messages[&sender].clear();
+    for (const auto &packet : acknowledgements)
+      recorder->on_message(packet.data(), packet.size());
+  }
+  assert(sender_text.find("# dump_end") != std::string::npos);
+  assert(!usb_independent_receiver.receiving());
+
+  // Queue rejection used to leave retries == 0 and busy forever.
+  Serial.sink = &robot_text;
+  blocked_sends.insert(&robot);
+  recorder->request('e');
+  for (unsigned i = 0; i < 1100; ++i) { host_ms += 10; recorder->update(robot, true); }
+  assert(robot_text.find("export made no progress for 10 s") != std::string::npos);
+  blocked_sends.erase(&robot);
+  messages[&robot].clear();
+  recorder->request('e');
+  for (unsigned i = 0; i < 10; ++i) { host_ms += 10; recorder->update(robot, true); }
+  assert(std::any_of(messages[&robot].begin(), messages[&robot].end(),
+      [](const auto &packet) { return packet[3] == uint8_t(RunDump::Message::Begin); }));
+
+  // Cancellation and timeout never close an open flash file during motion.
+  operations = host_flash_operations;
+  host_motion = true;
+  recorder->request('x');
+  for (unsigned i = 0; i < 10; ++i) { host_ms += 10; recorder->update(robot, false); }
+  assert(host_flash_operations == operations);
+  recorder->request('e');
+  for (unsigned i = 0; i < 1100; ++i) { host_ms += 10; recorder->update(robot, false); }
+  assert(host_flash_operations == operations);
+  // Both the cancelled transfer and the blocked request release the busy state.
+  host_motion = false;
+  messages[&robot].clear();
+  recorder->request('e');
+  for (unsigned i = 0; i < 30; ++i) { host_ms += 10; recorder->update(robot, true); }
+  assert(std::any_of(messages[&robot].begin(), messages[&robot].end(),
+      [](const auto &packet) { return packet[3] == uint8_t(RunDump::Message::Begin); }));
+  recorder->request('x');
+  recorder->update(robot, true);
+
+  // A stalled local serial export also releases busy and permits radio export.
+  Serial.room = 0;
+  recorder->request('p');
+  for (unsigned i = 0; i < 1100; ++i) { host_ms += 10; recorder->update(robot, true); }
+  messages[&robot].clear();
+  recorder->request('e');
+  for (unsigned i = 0; i < 10; ++i) { host_ms += 10; recorder->update(robot, true); }
+  assert(std::any_of(messages[&robot].begin(), messages[&robot].end(),
+      [](const auto &packet) { return packet[3] == uint8_t(RunDump::Message::Begin); }));
+
+  // Timeout after local CSV has actually started, leaving a partial row.
+  recorder->request('x');
+  Serial.room = 64;
+  for (unsigned i = 0; i < 10; ++i) { host_ms += 10; recorder->update(robot, true); }
+  recorder->request('p');
+  Serial.room = 7;
+  for (unsigned i = 0; i < 100; ++i) { host_ms += 10; recorder->update(robot, true); }
+  Serial.room = 0;
+  for (unsigned i = 0; i < 1100; ++i) { host_ms += 10; recorder->update(robot, true); }
+  messages[&robot].clear();
+  recorder->request('e');
+  for (unsigned i = 0; i < 10; ++i) { host_ms += 10; recorder->update(robot, true); }
+  assert(std::any_of(messages[&robot].begin(), messages[&robot].end(),
+      [](const auto &packet) { return packet[3] == uint8_t(RunDump::Message::Begin); }));
 
 }

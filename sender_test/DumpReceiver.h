@@ -89,6 +89,10 @@ public:
   }
   bool receiving() const { return active; }
   bool printing() const { return output_position < output_size; }
+  void cancel() {
+    have_session = active = pending_ack = false;
+    // Let an already staged CSV line finish before unrelated output.
+  }
 
 private:
   template <typename... Args> void queue(const char *format, Args... args) {

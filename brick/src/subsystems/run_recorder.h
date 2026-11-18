@@ -13,7 +13,9 @@ public:
   void request(char command);
   void on_message(const uint8_t *data, size_t length);
   void update(NowPair &link, bool storage_idle);
-  bool printing() const { return serial_export.load() || status_output_active.load(); }
+  bool printing() const {
+    return serial_export.load() || serial_tail_pending.load() || status_output_active.load();
+  }
 
 private:
   void append(const RunDump::Record &record);
@@ -27,6 +29,7 @@ private:
   void print_status();
   void save_step();
   void start_export(bool radio);
+  void stop_export(const char *message);
   void serial_step();
   void radio_step(NowPair &link);
   void status(const char *text);
@@ -50,6 +53,12 @@ private:
   uint32_t export_index = 0, session = 0, last_send_ms = 0;
   bool waiting_ack = false, sending_begin = false, sending_end = false;
   bool radio_complete = false, radio_restart = false;
+  bool export_close_pending = false;
+  enum class ExportWait { None, Preparing, Motors, Link, SerialOutput };
+  ExportWait export_wait = ExportWait::None;
+  uint32_t last_export_progress_ms = 0;
+  static constexpr uint32_t export_timeout_ms = 10000;
+  std::atomic<bool> serial_tail_pending{false};
   char serial_buffer[768];
   size_t serial_size = 0, serial_position = 0;
   uint8_t radio_buffer[NowPair::MAX_PAYLOAD];

@@ -94,8 +94,15 @@ void RunRecorder::add_state(const RunDump::Record &new_state) {
 }
 
 void RunRecorder::request(char command) {
+  if (command == 'x') {
+    if (serial_export || radio_export || export_requested)
+      stop_export("export cancelled; snapshot retained");
+    else
+      status("no export active");
+    return;
+  }
   if (serial_export || radio_export || export_requested) {
-    status("busy exporting snapshot");
+    status("export already queued or active; x cancels");
     return;
   }
   switch (command) {
@@ -103,6 +110,8 @@ void RunRecorder::request(char command) {
   case 'p':
   case 'e':
     export_requested = command;
+    export_wait = ExportWait::None;
+    last_export_progress_ms = millis();
     status("export queued");
     break;
   case 'f':
@@ -256,16 +265,18 @@ void RunRecorder::start_export(bool radio) {
   }
   const auto &header = ram_export ? pending : latest;
   export_index = 0;
-  serial_position = serial_size = 0;
-  serial_finishing = false;
   radio_export = radio;
   serial_export = !radio;
+  last_export_progress_ms = millis();
   if (radio) {
     session = esp_random();
     sending_begin = true;
     sending_end = waiting_ack = radio_complete = radio_restart = false;
     retries = 0;
+    status("radio export started; CSV prints on sender serial");
   } else {
+    serial_position = serial_size = 0;
+    serial_finishing = false;
     serial_size = std::snprintf(serial_buffer, sizeof(serial_buffer),
         "# dump_begin generation=%lu count=%lu overwritten=%lu paused=%lu source=%s\n%s",
         static_cast<unsigned long>(header.generation),
@@ -276,13 +287,30 @@ void RunRecorder::start_export(bool radio) {
   }
 }
 
+void RunRecorder::stop_export(const char *message) {
+  if (!ram_export && (serial_export || radio_export))
+    export_close_pending = true;
+  // Finish a partially emitted row before printing status, without keeping
+  // the transfer busy or touching flash in a receive callback.
+  serial_tail_pending = serial_tail_pending || (serial_export && serial_position < serial_size);
+  serial_export = radio_export = false;
+  export_requested = 0;
+  waiting_ack = false;
+  export_wait = ExportWait::None;
+  status(message);
+}
+
 void RunRecorder::serial_step() {
   if (serial_position < serial_size) {
     const size_t length = std::min(serial_size - serial_position,
                                   size_t(std::max(0, Serial.availableForWrite())));
-    if (length)
-      serial_position += Serial.write(
+    if (length) {
+      const size_t written = Serial.write(
           reinterpret_cast<const uint8_t *>(serial_buffer + serial_position), length);
+      serial_position += written;
+      if (written)
+        last_export_progress_ms = millis();
+    }
     return;
   }
 
@@ -338,19 +366,31 @@ void RunRecorder::on_message(const uint8_t *data, size_t length) {
     return;
   waiting_ack = false;
   retries = 0;
+  last_export_progress_ms = millis();
   if (sending_begin)
     sending_begin = false;
   else if (sending_end) {
     // ACK callbacks only change RAM state. Closing a file waits for update()
     // to confirm that motor outputs are still disabled.
     radio_complete = true;
-  } else
+  } else {
     ++export_index;
+    if (export_index % 128 == 0) {
+      char progress[80];
+      const auto &header = ram_export ? pending : latest;
+      std::snprintf(progress, sizeof(progress), "radio export %lu/%lu records",
+                    static_cast<unsigned long>(export_index),
+                    static_cast<unsigned long>(header.count));
+      status(progress);
+    }
+  }
 }
 
 void RunRecorder::radio_step(NowPair &link) {
   const auto &header = ram_export ? pending : latest;
   if (!ram_export && !storage_idle_now) {
+    if (!radio_restart)
+      status("radio export paused; waiting for zero motor commands and outputs; x cancels");
     radio_restart = true;
     return;
   }
@@ -369,20 +409,14 @@ void RunRecorder::radio_step(NowPair &link) {
     return;
   }
   if (!link.connected()) {
-    radio_export = false;
-    if (!ram_export)
-      export_file.close();
-    status("radio export interrupted; request e to restart");
+    stop_export("radio export disconnected; snapshot retained, e retries");
     return;
   }
   if (waiting_ack) {
     if (millis() - last_send_ms < 200)
       return;
     if (retries >= 10) {
-      radio_export = false;
-      if (!ram_export)
-        export_file.close();
-      status("radio export timed out");
+      stop_export("radio export ACK timed out; check sender firmware/serial, e retries");
       return;
     }
   } else {
@@ -423,6 +457,15 @@ void RunRecorder::radio_step(NowPair &link) {
 void RunRecorder::print_status() {
   if (serial_export)
     return;
+  if (serial_tail_pending) {
+    const size_t length = std::min(serial_size - serial_position,
+        size_t(std::max(0, Serial.availableForWrite())));
+    if (length)
+      serial_position += Serial.write(
+          reinterpret_cast<const uint8_t *>(serial_buffer + serial_position), length);
+    serial_tail_pending = serial_position < serial_size;
+    return;
+  }
   if (status_position == status_size && status_serial_pending) {
     status_size = std::snprintf(status_serial, sizeof(status_serial),
                                 "# dump %s\n", status_message);
@@ -463,19 +506,42 @@ void RunRecorder::update(NowPair &link, bool storage_idle) {
   }
   if (Serial.available()) {
     const char command = Serial.read();
-    if (command == 's' || command == 'p' || command == 'e' || command == 'f')
+    if (command == 's' || command == 'p' || command == 'e' || command == 'f' || command == 'x')
       request(command);
+  }
+  if ((export_requested || serial_export || radio_export) &&
+      millis() - last_export_progress_ms >= export_timeout_ms)
+    stop_export("export made no progress for 10 s; snapshot retained, p/e retries");
+  if (export_close_pending && storage_idle_now) {
+    export_file.close();
+    export_close_pending = false;
   }
   if (phase == CapturePhase::Preparing)
     prepare_step();
   print_status();
-  // A partial status line must finish before CSV begins.
-  const bool line_finished = status_position == status_size;
-  if (export_requested && phase != CapturePhase::Preparing && line_finished &&
-      (phase != CapturePhase::Rolling || storage_idle_now)) {
+  // Local CSV must follow complete lines. Radio export never depends on the
+  // robot's USB connection or its serial buffer draining.
+  if (export_requested) {
     const bool radio = export_requested == 'e';
-    export_requested = 0;
-    start_export(radio);
+    const ExportWait wait = phase == CapturePhase::Preparing ? ExportWait::Preparing :
+        phase == CapturePhase::Rolling && !storage_idle_now ? ExportWait::Motors :
+        radio && !link.connected() ? ExportWait::Link :
+        !radio && (status_position != status_size || serial_tail_pending) ? ExportWait::SerialOutput :
+        ExportWait::None;
+    if (wait != export_wait) {
+      export_wait = wait;
+      switch (wait) {
+      case ExportWait::Preparing: status("export waiting for RAM checksum; x cancels"); break;
+      case ExportWait::Motors: status("export waiting for zero motor commands and outputs for 200 ms; x cancels"); break;
+      case ExportWait::Link: status("export waiting for sender ESP-NOW connection; x cancels"); break;
+      case ExportWait::SerialOutput: status("export waiting for robot serial output; x cancels"); break;
+      case ExportWait::None: break;
+      }
+    }
+    if (wait == ExportWait::None) {
+      export_requested = 0;
+      start_export(radio);
+    }
   }
   if (!serial_export && !radio_export && !export_requested && storage_idle_now) {
     if (format_requested && phase != CapturePhase::Writing)

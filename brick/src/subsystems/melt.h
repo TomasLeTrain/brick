@@ -109,6 +109,13 @@ public:
   MeltInput *get_input() { return &input; }
   const MeltOutput *get_output() { return &output; }
 
+  // General-loop intent, independent of the motor task's last applied output.
+  // Zero RPM request can select tank mode, which may still command movement.
+  bool has_motor_command() const {
+    return active_drive_type == DriveType::Melting ? base_spin_power != 0 :
+        tank_left_power != 0 || tank_right_power != 0;
+  }
+
   // recalculates all values dependent on input
   // call after changing any inputs
   void general_update();
@@ -138,7 +145,7 @@ private:
   // in range [0,1]
   float led_vector_magnitude;
 
-  float base_spin_power;
+  float base_spin_power = 0;
 
   // in range [0,2PI]
   float target_theta;
@@ -149,8 +156,8 @@ private:
   float melt_linear_mag;
 
   // in range [-1,1]
-  float tank_left_power;
-  float tank_right_power;
+  float tank_left_power = 0;
+  float tank_right_power = 0;
 
   int32_t turn_factor_us;
 
@@ -161,5 +168,5 @@ private:
   bool melting = false;
 
   // drive type being used for update, as determined by inputs
-  DriveType active_drive_type;
+  DriveType active_drive_type = DriveType::Tank;
 };
