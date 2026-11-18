@@ -1,6 +1,6 @@
 # Brick
 
-## RSSI RPM estimation and phase tracking
+## RSSI RPM estimation and delay-compensated heading
 
 Flash the robot with `brick` and the controller ESP with `sender_test`. The
 sender fills spare ESP-NOW transmit slots with two-byte RSSI probes and schedules
@@ -15,7 +15,7 @@ prevents per-loop telemetry from claiming every freed queue slot before an
 export packet can enter the queue.
 
 RSSI is the robot's RPM source. The current robot configuration disables the
-accelerometer. Version-4 captures reuse its storage slots for phase diagnostics. Watch serial output for `rpm`, `fast_rpm`,
+accelerometer. Version-5 captures reuse its storage slots for heading diagnostics. Watch serial output for `rpm`, `fast_rpm`,
 `long_rpm`, `throttle`, and `rssi_hz`. An RPM of zero means the signal has
 not acquired a reliable period or has lost it.
 
@@ -61,76 +61,56 @@ The implementation estimates speed from RSSI periodicity. Its sampling and
 autocorrelation approach was inspired by
 [TGower/rotation_sensing](https://github.com/TGower/rotation_sensing).
 
-## Heading and RSSI phase
+## RPM timing and heading
 
-`RssiPhaseTracker` maintains a continuous rotor phase. **At settled speed it
-uses RPM-only dead reckoning**, with no phase corrections or learned frequency
-trim. RSSI waveform phase is monitored and its RF reference follows the current
-integrated heading, so changed transmitter bearing or multipath does not pull
-steady-speed heading toward a new RF pattern.
+`RpmHeadingTracker` uses RPM dead reckoning plus a correction for delayed speed
+measurements. No RSSI waveform phase, antenna orientation, or feedforward target
+is used to correct heading. It runs during translation and speed changes alike.
 
-A throttle change of at least 0.01 (one percentage point of normalized motor
-power, accumulated since the previous change) opens temporary phase assistance.
-This threshold ignores the small controller jitter visible in logs 12–14.
-Assistance lasts at least 600 ms, ends after filtered RPM has been stable for
-350 ms, and is capped at three seconds after the latest throttle change. RPM
-noise alone cannot enable corrections. The 80 ms RPM filter is only for deciding
-when assistance has settled; heading prediction still uses the normal RSSI RPM.
-No acceleration state/predictor is implemented.
+The RPM estimator now publishes an effective measurement epoch for each accepted
+period. Correlation compares the latest N samples with a segment one period
+older, so a linear-ramp approximation puts its measurement at:
 
-Commanded translation, using the same magnitude/deadzone as motor modulation,
-cancels assistance and suppresses it for 500 ms after returning to neutral.
-There is no delayed catch-up to the RF bearing after movement. An unexpected
-collision, motion without a stick command, or transmitter movement cannot be
-identified from these inputs alone; phase assistance can still be affected by
-RF changes during an enabled speed transition. If accelerating while translating,
-this conservative policy deliberately uses RPM-only heading prediction.
+```
+epoch = window_end - ((N - 1) * 1 ms + measured_period) / 2
+```
 
-The observer fits the latest two rotations (40–300 ms) to a baseline, linear
-fade, and first/second harmonics. It uses the original Wi-Fi hardware packet
-clock mapped to local `micros()` by timestamps captured on the Wi-Fi callback,
-before the application queue. A rolling minimum estimates that clock bridge;
-callbacks delayed by more than 20 ms are excluded from the phase history.
+The Wi-Fi/local-clock bridge maps that epoch to `micros()`, using timestamps
+captured before application queueing. Cached long-window results retain their
+original epoch; repeated, backward, future and over-age observations cannot
+masquerade as fresh measurements.
 
-Phase confidence combines detrended fit quality and fundamental power. The
-fundamental must have at least 1.5 dB amplitude, at least 15% of first plus second
-harmonic power, and confidence at least 0.35 for monitoring, 0.45 for correction.
-Reference acquisition requires at least six consistent fits spanning a full fit
-window. A reference older than 150 ms is reacquired without moving heading.
-Exactly identical antenna lobes lack observable full-turn phase and fall back
-to dead reckoning.
+The heading tracker integrates RPM between these past epochs with a trapezoidal
+rule. This revises the predicted history as measured speeds become available.
+It projects that integral to the present using a fitted RPM trend from at most
+12 observations spanning 150 ms. Weak/noisy trends become a local average rather
+than an acceleration extrapolation. Significant trends are limited to 6000 RPM/s,
+a 120 ms prediction ramp and a speed change of at most 20% / 600 RPM.
 
-During assistance, phase corrections are capped at 0.12 rad per update and the
-frequency trim at 3% of RPM. Innovations above 0.65 rad are rejected outright;
-a change above 0.3 rad between nearby observations also rejects the observation
-and clears trim. Corrections wait a full fit window after a discontinuity, rather
-than accepting three heavily overlapping fits. Trim decays when quality fails
-and is cleared when assistance ends. If RPM disappears, prediction coasts for
-at most 300 ms, then becomes unavailable; a stale motor-task snapshot also
-expires after 300 ms.
+The difference between that revised heading and the live heading becomes a
+bounded angular correction rate (at most 4 rad/s, nominal 100 ms response).
+It does **not** step the heading angle. The fast task extrapolates the published
+total heading rate; driver turns remain an independent offset. Initial lock and
+reacquisition after a long outage preserve the current heading. Complete loss of
+valid RPM coasts for at most 300 ms, then freezes prediction.
 
-The motor task extrapolates a coherent local-clock snapshot at its fast-loop
-rate. Changing RPM updates the phase rate without rescaling elapsed rotation
-time. Commanded heading turns integrate into a separate offset, so sensor phase
-corrections do not undo driver turns. Turning uses actual elapsed time with the
-previous nominal 1 kHz gain.
+Set `RPM_HEADING_COMPENSATION=false` in `brick/config.h` for plain RPM integration.
+`RPM_HEADING_DELAY_SCALE` defaults to 1 and scales the inferred measurement age
+for calibration. This effective-epoch model is approximate, particularly under
+rapid/nonlinear acceleration or changing RF conditions. It cannot remove steady
+RPM bias or infer unseen speed changes before delayed measurements arrive.
+Use actual robot runs to calibrate it; captures have no independent heading truth.
 
-Set `RSSI_PHASE_TRACKING = false` in `brick/config.h` to compare RPM-only
-integration with phase corrections disabled. The continuous clock is used in
-both modes. The phase history adds about 4 KiB RAM; capture size stays unchanged.
-The existing fast-task park/RMT-drain handshake still protects filesystem work.
-
-**Reference limitation:** this follows a repeatable RF pattern relative to the
-transmitter. Changed transmitter bearing, multipath or an altered antenna
-pattern can change that reference. It is not a world-fixed heading sensor.
-Bench tests must include the real transmitter geometry, motion and packet load.
+The former RSSI phase-lock implementation has been removed. The continuous clock,
+packet timestamps, driver-turn offset and filesystem park/RMT-drain handshake
+remain. The tracker uses a small RPM history instead of the 4 KiB RF phase ring.
 
 ### Build and test
 
 The sketches were built for ESP32-S3 with Arduino-ESP32 3.3.7. Update both
-robot and sender firmware for version-4 phase dump exports. Older sender firmware
-will reject a version-4 radio dump. The desktop plotter
-accepts version-1 through version-4 dumps.
+robot and sender firmware for version-5 heading dump exports. Earlier sender
+firmware rejects v5 dumps. The desktop plotter accepts version-1 through
+version-5 dumps.
 
 ```sh
 arduino-cli compile --fqbn esp32:esp32:esp32s3:CDCOnBoot=cdc brick
@@ -153,7 +133,7 @@ c++ -std=c++17 -O2 -Itests/host tests/melt_idle_test.cpp \
 /tmp/brick-idle-test
 c++ -std=c++17 -O2 -Itests/host -Ibrick tests/comms_export_test.cpp \
     brick/src/subsystems/comms.cpp brick/src/subsystems/run_recorder.cpp \
-    brick/src/subsystems/rssi_rpm_estimator.cpp brick/src/subsystems/rssi_phase_tracker.cpp \
+    brick/src/subsystems/rssi_rpm_estimator.cpp brick/src/subsystems/rpm_heading_tracker.cpp \
     brick/src/lib/NowPair.cpp \
     -o /tmp/brick-comms-export-test
 /tmp/brick-comms-export-test
@@ -163,9 +143,14 @@ c++ -std=c++17 -O2 tests/storage_gate_test.cpp -o /tmp/brick-storage-gate-test
 c++ -std=c++17 -O2 -Itests/host tests/led_buffer_test.cpp \
     brick/src/subsystems/led.cpp -o /tmp/brick-led-test
 /tmp/brick-led-test
-c++ -std=c++17 -O2 -Ibrick/src/subsystems tests/rssi_phase_test.cpp \
-    brick/src/subsystems/rssi_phase_tracker.cpp -o /tmp/brick-phase-test
-/tmp/brick-phase-test
+c++ -std=c++17 -O2 -Ibrick/src/subsystems tests/rpm_heading_test.cpp \
+    brick/src/subsystems/rpm_heading_tracker.cpp -o /tmp/brick-rpm-heading-test
+/tmp/brick-rpm-heading-test
+c++ -std=c++17 -O2 -Ibrick/src/subsystems tests/rpm_epoch_test.cpp \
+    brick/src/subsystems/rssi_rpm_estimator.cpp -o /tmp/brick-epoch-test
+/tmp/brick-epoch-test
+c++ -std=c++17 -O2 tests/dump_command_test.cpp -o /tmp/brick-command-test
+/tmp/brick-command-test
 c++ -std=c++17 -O2 -Ibrick/src/subsystems tests/heading_clock_test.cpp -o /tmp/brick-heading-test
 /tmp/brick-heading-test
 c++ -std=c++17 -O2 -Itests/host tests/now_pair_timing_test.cpp \
@@ -195,19 +180,18 @@ Replace `/dev/ttyACM0` with your board's port.
 
 Send `b` to run deterministic noisy simulations at 400, 600, 1111, 2275 and
 3000 RPM. Each result includes correctness checks after warm-up, RMS RPM error,
-mean and maximum combined RPM/phase sample/update/analysis times, an estimated compute load at the
+mean and maximum combined RPM/heading sample/update/analysis times, an estimated compute load at the
 simulated packet rate, and free heap and stack bytes. The matches fraction
 counts post-warm-up estimates within 2.5% of the expected RPM. Sample generation,
 serial output and deliberate yields are outside the timed estimator calls.
 This sketch initializes the estimator and serial port. The robot's live dumps
 include `estimator_us` to measure combined update time with normal robot/Wi-Fi activity.
 
-Send `p` in the benchmark sketch for a six-second 1200-to-3000 RPM run with a
-100 ms delayed RPM measurement and a throttle cue. It reports settled phase RMS
-error (after four seconds) versus RPM-only dead reckoning, assistance counts,
-phase-only compute timing/load and heap use. Errors are relative to the
-orientation before the ramp, not a compass heading. Steady RPM bias is no longer
-corrected continuously: steady operation intentionally favors dead reckoning.
+Send `p` for a six-second ideal delayed-RPM test: a 1200-to-3000 RPM ramp with
+100 ms measurement delay and known measurement epochs. It compares compensated
+heading with plain dead reckoning and reports settled RMS, transient peak and
+CPU/heap use. This isolates the heading model; `b`/`r` and the host simulator use
+the actual noisy-RSSI estimator. Ideal-measurement results are not robot accuracy.
 
 Send `d` to print a two-second 3000 RPM simulation as CSV with a `true_rpm`
 and `true_phase_rad` columns and device timings. Send `r` for a continuous-phase 1200-to-3000 RPM
@@ -216,9 +200,15 @@ serial output and use the plotter below.
 
 ## Save a robot run
 
+Serial commands on **both** ESPs require a standalone letter and Enter: `s`, `p`,
+`e`, `f`, or `x`. Set Serial Monitor line endings to Newline or Both NL & CR.
+Boot and link connection do not request an export. Partial input or embedded
+letters in startup/echo text cannot trigger one. Controller capture still uses
+an actual SWB high-to-low edge; its initial position is not a trigger.
+
 The robot keeps the latest 2048 events in RAM, including every delivered RSSI
-sample and each control/phase update. At about 1000 RSSI packets/sec
-this covers roughly 1.8 seconds before the trigger. The version-4 buffer uses
+sample and each control/heading update. At about 1000 RSSI packets/sec
+this covers roughly 1.8 seconds before the trigger. The version-5 buffer uses
 168 KiB RAM.
 
 Toggle controller SWB from high to low to capture the recent history. Flash
@@ -287,7 +277,7 @@ recover the lost capture. Boot prints `# boot reset_reason=...` with a readable
 watchdog/panic/brownout reason to distinguish a reboot from a link outage.
 Two files alternate between saves. A versioned header, exact length and CRC
 identify a complete snapshot, allowing the previous complete file to be
-recovered after an interrupted write. Version-1, version-2 and version-3 snapshots remain
+recovered after an interrupted write. Version-1 through version-4 snapshots remain
 readable and exportable. The `overwritten` count reports events evicted from the
 rolling buffer before capture. A repeated generation identifies repeated export
 of the same snapshot.
@@ -325,26 +315,23 @@ without deleting the snapshot. File cleanup waits for idle if drive resumes.
 Additional capture/format requests during an export report busy. Repeated
 capture requests retain the frozen snapshot until it is saved.
 
-The CSV contains raw RSSI, rotor phase/innovation/confidence, RSSI/phase RPM, fast
-and long estimates, steady feedforward RPM, packet rate, commanded motor
-throttle, per-update estimator runtime, and queue drop counts. Records
-also identify the selected comparison length, lag search limits, analysis clock,
-mode and hint state. Version-3 adds controller/spin/capture-switch flags,
-a connection-state code, the estimator's rejection reason and maximum motor-loop
-gap since the preceding state record. Full correlation arrays are calculated on
-the host. State-only columns on RSSI rows are placeholders and are ignored by
-the visualizer.
+The CSV contains raw RSSI, measured/predicted heading RPM, heading, pending
+heading error, effective RPM measurement age, feedforward steady RPM, throttle,
+fast/long estimates, analysis parameters, runtime and queue drop counts. State
+records also include controller/connection flags and the maximum motor-loop gap.
 
-Version-4 keeps the 84-byte binary record and 168 KiB ring by reusing the three
-disabled accelerometer floats for `phase_rad`, `phase_error_rad` (innovation),
-and `phase_confidence`. The upper bits of `hint_used` store phase status; bit 0
-retains the feedforward-hint flag. CSV exports decode these separately and add
-`phase_rpm` as an alias for v4 `control_rpm`, the rate used for heading prediction.
-The motor RPM controller continues using `rssi_rpm`. Legacy raw acceleration
-values remain readable/exportable; legacy phase fields export as unavailable.
-`phase_status` is 0 unavailable, 1 acquiring, 2 phase tracking, 3 dead reckoning,
-4 ambiguous lobes, 5 steady RPM-only/RF monitoring, 6 translation hold,
-7 rejected phase discontinuity. Phase angles are in radians and have an arbitrary initial offset.
+Version-5 keeps the 84-byte record and 168 KiB ring. Its three reused float slots
+hold `heading_rad`, `heading_error_rad` (pending error, not an angle step), and
+`rpm_measurement_age_ms`. `heading_rpm` aliases `control_rpm`: this includes
+bounded acceleration prediction and the angular error correction rate. Motor
+speed control still uses raw `rssi_rpm`. The upper bits of `hint_used` encode
+`heading_status`: 8 unavailable, 9 plain dead reckoning, 10 delay compensation,
+11 coasting. Bit 0 retains the feedforward-hint flag.
+
+V4 RF phase/error/confidence and v1–v3 acceleration slots remain separately
+readable/exportable. Latest CSVs append heading fields; unavailable fields are
+NaN. Older RF phase and current heading diagnostics are not mixed on the plot.
+Angles have an arbitrary initial offset; they do not define magnetic north.
 
 `rpm_status` values are 0 warm-up, 1 low packet rate, 2 low RSSI variance,
 3 missing sample coverage, 4 no credible period, 5 confirming a period,
@@ -357,14 +344,14 @@ needs visible periodic variation while the robot is spinning.
 2 spin switch off, 3 accelerometer disconnected and 4 ready. The separate
 `controller_connected`, `spin_enabled` and `capture_switch` columns show the
 received control flags.
-`kind=1` identifies RSSI events and `kind=2` identifies control/phase
+`kind=1` identifies RSSI events and `kind=2` identifies control/heading
 events. Fields belonging to the other event type are ignored by the plotter.
 RSSI `timestamp_us` comes from the Wi-Fi receive clock. State timestamps use
-the local microsecond clock at the phase snapshot. In v4 RSSI rows, `received_us`
+the local microsecond clock at the heading snapshot. In v4+ RSSI rows, `received_us`
 is the Wi-Fi callback time; in state rows it is task logging time. Versions 1–3
 only retain task delivery times. The plotter preserves RSSI packet intervals and
 aligns their first sample to its local timestamp. Older captures cannot validate
-the exact radio-to-control latency and use an approximate bridge in phase replay tests.
+the exact radio-to-control latency and use an approximate bridge in timing replay tests.
 
 ## Plot simulations and captures
 
@@ -377,12 +364,11 @@ python3 tools/plot_dump.py run.csv --start 0.2 --end 1.2 --save run.png
 python3 tools/plot_dump.py simulation.csv run.csv --save comparison.pdf
 ```
 
-The graph includes raw RSSI, calculated/fast/long RPM, the feedforward steady
-RPM, motor throttle, estimator update time and packet rate. Version-4 adds wrapped
-rotor phase, phase innovation/confidence and the phase prediction rate. The cursor
-shows whether phase assistance is active, monitoring at steady speed, held by
-translation, or rejecting a discontinuity/ambiguous lobes. Acceleration fields
-remain readable in older dumps and are omitted from the graph.
+The graph includes RSSI, measured/fast/long RPM, feedforward RPM, throttle,
+runtime and packet rate. V5 adds wrapped heading, pending heading error,
+measurement age and total heading prediction rate. V4 captures retain their
+legacy RF phase diagnostics. The cursor identifies the applicable tracking mode.
+Acceleration fields remain readable in old dumps and are omitted from plots.
 The target is a dashed step trace. Measured `rssi_rpm` is drawn above the fast
 estimate so identical values remain visible. The time cursor shows numeric
 `target_rpm` and `rssi_rpm` from the latest control record. Zero placeholders in
@@ -415,9 +401,11 @@ values reflect the host CPU.
 
 ```sh
 c++ -std=c++17 -O2 tools/rssi_simulator.cpp \
-    brick/src/subsystems/rssi_rpm_estimator.cpp brick/src/subsystems/rssi_phase_tracker.cpp \
+    brick/src/subsystems/rssi_rpm_estimator.cpp brick/src/subsystems/rpm_heading_tracker.cpp \
     -o /tmp/brick-sim
-/tmp/brick-sim 1200 3 1000 3000 > simulation.csv
-python3 tools/plot_dump.py simulation.csv --time 1.5
+/tmp/brick-sim 1200 6 1000 3000 1 > simulation.csv
+# Set the final argument to 0 for an identical RPM-only comparison run.
+/tmp/brick-sim 1200 6 1000 3000 0 > dead.csv
+python3 tools/plot_dump.py simulation.csv dead.csv --time 3
 python3 -m unittest discover -s tests -p 'test_*.py'
 ```

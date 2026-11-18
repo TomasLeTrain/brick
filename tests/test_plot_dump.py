@@ -128,6 +128,21 @@ class PlotDumpTests(unittest.TestCase):
         self.assertEqual(row["hint_used"], 1)
         self.assertNotIn("ax_g", row)
 
+    def test_version_five_heading_age_and_legacy_phase_separation(self):
+        values = dict.fromkeys(plot_dump.BINARY_FIELDS, 0)
+        values.update(timestamp_us=10000, received_us=10050, kind=2,
+                      connected=0x89, ax_g=.6, ay_g=.03, az_g=75,
+                      control_rpm=2101, hint_used=1 | (10 << 1))
+        payload = plot_dump.RECORD.pack(*values.values())
+        self.path.write_bytes(struct.pack("<8I", 0x31524442, 5, 1, 1, 84,
+                                          zlib.crc32(payload), 0, 0) + payload)
+        row = plot_dump.load(self.path)[0].rows[0]
+        self.assertAlmostEqual(row["heading_rad"], .6, places=5)
+        self.assertEqual(row["heading_rpm"], 2101)
+        self.assertEqual(row["rpm_measurement_age_ms"], 75)
+        self.assertEqual(row["heading_status"], 10)
+        self.assertNotIn("phase_rad", row)
+
     def test_interactive_cursor_updates_correlation(self):
         import math
         import matplotlib

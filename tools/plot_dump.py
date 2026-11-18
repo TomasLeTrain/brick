@@ -36,9 +36,14 @@ PHASE_STATUS = {0: "unavailable", 1: "acquiring", 2: "phase locked",
                 3: "dead reckoning", 4: "ambiguous antenna lobes",
                 5: "steady RPM-only / RF monitoring", 6: "translation hold",
                 7: "phase discontinuity rejected"}
+HEADING_STATUS = {8: "heading unavailable", 9: "RPM dead reckoning",
+                  10: "RPM delay compensation", 11: "RPM coasting"}
 PANELS = (
     ("RSSI (dBm)", ("rssi_dbm",)),
-    ("RPM", ("rssi_rpm", "fast_rpm", "long_rpm", "target_rpm", "phase_rpm", "true_rpm")),
+    ("RPM", ("rssi_rpm", "fast_rpm", "long_rpm", "target_rpm", "phase_rpm", "heading_rpm", "true_rpm")),
+    ("Heading (wrapped rad)", ("heading_rad",)),
+    ("Heading error (rad)", ("heading_error_rad",)),
+    ("RPM measurement age (ms)", ("rpm_measurement_age_ms",)),
     ("Phase (wrapped rad)", ("phase_rad", "true_phase_rad")),
     ("Phase innovation (rad)", ("phase_error_rad",)),
     ("Phase confidence", ("phase_confidence",)),
@@ -61,7 +66,7 @@ def read_binary(path):
     magic, version, generation, count, record_size, crc, overwritten, paused = (
         HEADER.unpack_from(data)
     )
-    record = {1: RECORD_V1, 2: RECORD_V2, 3: RECORD, 4: RECORD}.get(version)
+    record = {1: RECORD_V1, 2: RECORD_V2, 3: RECORD, 4: RECORD, 5: RECORD}.get(version)
     fields = BINARY_FIELDS_V1 if version == 1 else BINARY_FIELDS[:25] if version == 2 else BINARY_FIELDS
     if magic != 0x31524442 or record is None or record_size != record.size:
         raise ValueError("unsupported binary dump format")
@@ -81,6 +86,13 @@ def read_binary(path):
             row["connected"] = flags & 1
             row["rpm_status"] = row["tracking_mode"] >> 2
             row["tracking_mode"] &= 3
+        if version == 5:
+            row["heading_rad"] = row.pop("ax_g")
+            row["heading_error_rad"] = row.pop("ay_g")
+            row["rpm_measurement_age_ms"] = row.pop("az_g")
+            row["heading_rpm"] = row["control_rpm"]
+            row["heading_status"] = row["hint_used"] >> 1 if row["kind"] == 2 else -1
+            row["hint_used"] &= 1
         if version == 4:
             row["phase_rad"] = row.pop("ax_g")
             row["phase_error_rad"] = row.pop("ay_g")
@@ -261,6 +273,9 @@ class DumpInspector:
             phase_status = row.get("phase_status", -1)
             if math.isfinite(phase_status) and phase_status >= 0:
                 notes.append(f"{label}: {PHASE_STATUS.get(int(phase_status), 'unknown phase status')}")
+            heading_status = row.get("heading_status", -1)
+            if math.isfinite(heading_status) and heading_status >= 0:
+                notes.append(f"{label}: {HEADING_STATUS.get(int(heading_status), 'unknown heading status')}")
             if row.get("kind") == 2 and row.get("connected") == 0:
                 notes.append(f"{label}: firmware was not ready to drive")
             grid = grid_at(dump.rows, index)
@@ -309,7 +324,15 @@ def plot(dumps, start=None, end=None, selected_time=None):
     available = {field for _, dump in dumps for row in dump.rows
                  for field, value in row.items() if math.isfinite(value) and
                  (row.get("kind") != 1 or field == "rssi_dbm")}
-    panels = [(label, fields) for label, fields in PANELS if available.intersection(fields)]
+    panels = []
+    for label, fields in PANELS:
+        if "heading_rad" in available:
+            if "heading_rad" in fields:
+                fields += ("true_phase_rad",)
+            elif "phase_rad" in fields:
+                fields = tuple(f for f in fields if f != "true_phase_rad")
+        if available.intersection(fields):
+            panels.append((label, fields))
     if not panels:
         raise ValueError("no supported RSSI, RPM, throttle, packet-rate or timing columns")
     figure = plt.figure(figsize=(15, max(8, len(panels) * 1.55)))
@@ -336,7 +359,7 @@ def plot(dumps, start=None, end=None, selected_time=None):
                         continue
                     if field == "phase_rad" and row.get("phase_status") == 0:
                         continue
-                    if field in ("phase_rad", "true_phase_rad"):
+                    if field in ("phase_rad", "true_phase_rad", "heading_rad"):
                         value = (value + math.pi) % (2 * math.pi) - math.pi
                     if (start is None or t >= start) and (end is None or t <= end):
                         points.append((t, value))

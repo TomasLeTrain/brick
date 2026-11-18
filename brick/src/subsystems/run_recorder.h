@@ -2,6 +2,7 @@
 
 #include "../common/run_dump.h"
 #include "../lib/NowPair.h"
+#include "../common/dump_command.h"
 #include <FS.h>
 #include <atomic>
 static_assert(RunDump::prefix_size + sizeof(RunDump::Record) <= NowPair::MAX_PAYLOAD,
@@ -57,6 +58,7 @@ private:
   RunDump::Record state{};
   size_t head = 0, count = 0, saved = 0;
   uint32_t overwritten = 0, paused = 0, checksum = UINT32_MAX;
+  DumpCommand serial_command;
   bool mounted = false, radio_export = false, ram_export = false;
   CapturePhase phase = CapturePhase::Rolling;
   bool write_failed = false, format_requested = false, serial_finishing = false;

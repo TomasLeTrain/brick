@@ -527,8 +527,8 @@ void RunRecorder::update(NowPair &link, bool storage_idle) {
     }
   }
   if (Serial.available()) {
-    const char command = Serial.read();
-    if (command == 's' || command == 'p' || command == 'e' || command == 'f' || command == 'x')
+    const char command = serial_command.feed(Serial.read());
+    if (command)
       request(command);
   }
   if ((export_requested || serial_export || radio_export) &&

@@ -143,26 +143,22 @@ void Robot::general_update() {
           ? std::min(target_rpm * RPM_THROTTLE_FEEDFORWARD,
                      config.melt_max_throttle_magnitude) : 0;
   const float steady_rpm = spin_throttle / RPM_THROTTLE_FEEDFORWARD;
-  const float command_x = (throttle_packet->right_ud / 1000.f - .5f) * 2;
-  const float command_y = (throttle_packet->right_lr / 1000.f - .5f) * 2;
-  const bool translating = connected == ConnectionState::Ready &&
-      std::hypot(command_x, command_y) / M_SQRT2 >= config.melt_deadzone;
-  comms.update_rpm(spin_throttle, steady_rpm, translating);
+  comms.update_rpm(spin_throttle, steady_rpm);
   const auto &rssi_estimator = comms.get_rssi_estimator();
   const auto &diagnostic = rssi_estimator.diagnostics();
   const float curr_rpm = rssi_estimator.rpm();
-  const auto &phase = comms.get_phase_tracker().state();
-  melt.set_phase_reference(phase.timestamp_us, phase.phase_rad, phase.rpm);
+  const auto &heading = comms.get_heading_tracker().state();
+  melt.set_phase_reference(heading.timestamp_us, heading.heading_rad, heading.rpm);
 
   RunDump::Record sample{};
-  sample.timestamp_us = phase.timestamp_us;
+  sample.timestamp_us = heading.timestamp_us;
   sample.received_us = micros();
-  sample.phase_rad = phase.phase_rad;
-  sample.phase_error_rad = phase.error_rad;
-  sample.phase_confidence = phase.confidence;
+  sample.heading_rad = heading.heading_rad;
+  sample.heading_error_rad = heading.error_rad;
+  sample.rpm_age_ms = heading.measurement_age_ms;
   sample.target_rpm = steady_rpm;
   sample.rssi_rpm = curr_rpm;
-  sample.control_rpm = phase.rpm;
+  sample.control_rpm = heading.rpm;
   sample.rssi_hz = rssi_estimator.sample_rate_hz();
   sample.throttle = spin_throttle;
   sample.fast_rpm = diagnostic.fast_rpm;
@@ -174,7 +170,7 @@ void Robot::general_update() {
   sample.max_lag = diagnostic.max_lag;
   sample.tracking_mode = diagnostic.mode |
       (static_cast<uint8_t>(diagnostic.status) << 2);
-  sample.hint_used = uint8_t(diagnostic.hint_used) | (uint8_t(phase.status) << 1);
+  sample.hint_used = uint8_t(diagnostic.hint_used) | (uint8_t(heading.status) << 1);
   sample.estimator_us = comms.estimator_time_us();
   sample.rx_dropped = comms.dropped_rx();
   sample.rssi_dropped = comms.dropped_rssi();

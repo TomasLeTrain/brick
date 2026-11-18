@@ -1,4 +1,5 @@
 #include "comms.h"
+#include <cmath>
 
 namespace {
 constexpr uint32_t throttle_timeout_ms = 100;
@@ -9,6 +10,9 @@ void Comms::connectionCb(bool connected, void *arg) {
     auto &self = *static_cast<Comms *>(arg);
     self.current_throttle = {};
     self.rssi_estimator.reset();
+    self.radio_clock.reset();
+    self.heading_observed = false;
+    self.heading_observation = {};
     self.switch_seen = false;
   }
 }
@@ -25,6 +29,8 @@ void Comms::dataCb(const uint8_t *data, size_t length, int, uint32_t,
         self.recorder.request('s');
       self.last_swb = self.current_throttle.swb;
       self.switch_seen = true;
+    } else {
+      self.switch_seen = false;
     }
   }
 }
@@ -34,7 +40,7 @@ void Comms::rssiCb(int rssi_dbm, uint32_t timestamp_us, uint32_t callback_us, vo
   if (self.connected()) {
     self.recorder.add_rssi(rssi_dbm, timestamp_us, callback_us);
     self.rssi_estimator.add_sample(timestamp_us, rssi_dbm);
-    self.phase_tracker.add_sample(timestamp_us, callback_us, rssi_dbm);
+    self.radio_clock.observe(timestamp_us, callback_us);
   }
 }
 
@@ -65,15 +71,32 @@ void Comms::update() {
   peer_link.update();
 
   const uint32_t now_ms = millis();
-  if (now_ms - last_throttle_ms >= throttle_timeout_ms)
+  if (now_ms - last_throttle_ms >= throttle_timeout_ms) {
     current_throttle.connected = false;
+    switch_seen = false;
+  }
 }
 
-void Comms::update_rpm(float throttle, float steady_rpm, bool translating) {
+void Comms::update_rpm(float throttle, float steady_rpm) {
   const uint32_t started_us = micros();
   rssi_estimator.set_drive_hint(throttle, steady_rpm, millis());
   rssi_estimator.update(millis());
-  phase_tracker.set_drive_hint(throttle, translating);
-  phase_tracker.update(micros(), rssi_estimator.rpm(), RSSI_PHASE_TRACKING);
+  const uint32_t now = micros();
+  const auto &measurement = rssi_estimator.measurement();
+  if (radio_clock.available() && measurement.rpm > 0 &&
+      (!heading_observed || measurement.timestamp_us != heading_radio_us)) {
+    // Freeze the bridge/scale at receipt. Re-evaluating a cached observation
+    // against a later now would manufacture fresh epochs when scale != 1.
+    heading_observed = true;
+    heading_radio_us = measurement.timestamp_us;
+    heading_observation = {};
+    const uint32_t local_time = radio_clock.local(measurement.timestamp_us);
+    const int32_t age = int32_t(now - local_time);
+    if (age >= 0 && age <= 250000) {
+      heading_observation = {now - uint32_t(std::lround(age * RPM_HEADING_DELAY_SCALE)),
+                             measurement.rpm, measurement.correlation};
+    }
+  }
+  heading_tracker.update(now, rssi_estimator.rpm(), heading_observation, RPM_HEADING_COMPENSATION);
   estimator_us = micros() - started_us;
 }

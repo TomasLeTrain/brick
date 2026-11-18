@@ -3,7 +3,8 @@
 #include "../common/packets.h"
 #include "../../config.h"
 #include "rssi_rpm_estimator.h"
-#include "rssi_phase_tracker.h"
+#include "rpm_heading_tracker.h"
+#include "radio_clock.h"
 #include "run_recorder.h"
 #include "../lib/NowPair.h"
 
@@ -13,12 +14,12 @@ public:
   void update_recorder(bool idle) { recorder.update(peer_link, idle); }
   bool begin();
   void update();
-  void update_rpm(float throttle, float steady_rpm, bool translating = false);
+  void update_rpm(float throttle, float steady_rpm);
   bool connected() const { return peer_link.connected(); }
 
   ThrottlePacket *get_throttle_packet() { return &current_throttle; }
   const RssiRpmEstimator &get_rssi_estimator() const { return rssi_estimator; }
-  const RssiPhaseTracker &get_phase_tracker() const { return phase_tracker; }
+  const RpmHeadingTracker &get_heading_tracker() const { return heading_tracker; }
   RunRecorder &get_recorder() { return recorder; }
   uint32_t estimator_time_us() const { return estimator_us; }
   uint32_t dropped_rx() const { return peer_link.droppedRxPackets(); }
@@ -32,7 +33,11 @@ private:
 
   NowPair peer_link{NowPair::Role::Slave, 6, HEARTBEAT_MS, TIMEOUT_MS};
   RssiRpmEstimator rssi_estimator;
-  RssiPhaseTracker phase_tracker;
+  RpmHeadingTracker heading_tracker;
+  RadioClock radio_clock;
+  RpmHeadingTracker::Observation heading_observation;
+  bool heading_observed = false;
+  uint32_t heading_radio_us = 0;
   RunRecorder recorder;
   uint32_t estimator_us = 0;
   bool switch_seen = false, last_swb = false;

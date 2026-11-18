@@ -108,6 +108,18 @@ int main(int argc, char **argv) {
   for (unsigned i = 0; i < 500; ++i)
     step();
   assert(robot->connected() && telemetry > 0 && replies > 0);
+  // Boot/status announcements and the initial switch positions are not commands.
+  assert(begins == 0 && !robot->get_recorder().radio_pending());
+  Serial.input += "Slave connected\n# dump filesystem ready\nexport\n";
+  ThrottlePacket throttle{};
+  throttle.connected = true;
+  throttle.swb = false;
+  uint8_t control[8];
+  throttle.serialize(control);
+  receive_frame(4, control, sizeof(control));
+  for (unsigned i = 0; i < 150; ++i) step();
+  assert(begins == 0 && !robot->get_recorder().radio_pending());
+  assert(host_files.empty());
   for (unsigned i = 0; i < RunDump::capacity; ++i)
     robot->get_recorder().add_rssi(-60 - i % 8, i * 1000);
   host_motion = true;
@@ -115,8 +127,11 @@ int main(int argc, char **argv) {
   robot->get_recorder().request('s');
   for (unsigned i = 0; i < 150; ++i)
     step();
+  Serial.input += "e";
+  for (unsigned i = 0; i < 100; ++i) step();
+  assert(begins == 0 && !robot->get_recorder().radio_pending());
   const auto before_export = telemetry;
-  robot->get_recorder().request('e');
+  Serial.input += "\n";
   for (unsigned i = 0; i < 12000 && !ends; ++i)
     step();
   std::cout << "step_ms=" << step_ms << " begin=" << begins << " records=" << records << " end=" << ends

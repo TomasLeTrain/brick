@@ -28,6 +28,7 @@ void RssiRpmEstimator::reset() {
   previous_candidate_rpm = previous_long_rpm = 0;
   estimated_rpm = packet_rate_hz = expected_rpm = 0;
   long_result = {};
+  accepted_measurement = {};
   diagnostic = {};
 }
 
@@ -168,6 +169,7 @@ void RssiRpmEstimator::update(uint32_t now_ms) {
       diagnostic.correlation = long_result.correlation;
       if (agreeing_estimates >= estimates_to_lock) {
         estimated_rpm = long_result.rpm;
+        accept(long_result);
         last_good_ms = now_ms;
         locked = true;
       }
@@ -196,6 +198,7 @@ void RssiRpmEstimator::update(uint32_t now_ms) {
   const bool jump_rejected = confident_fast && !plausible_change(fast.rpm, now_ms);
   if (confident_fast && !jump_rejected) {
     estimated_rpm = fast.rpm;
+    accept(fast);
     diagnostic.status = Status::Tracking;
     last_good_ms = now_ms;
     if (long_result.rpm > 0 &&
@@ -208,6 +211,7 @@ void RssiRpmEstimator::update(uint32_t now_ms) {
              plausible_change(long_result.rpm, now_ms) &&
              std::abs(long_result.rpm - estimated_rpm) < 0.08f * estimated_rpm) {
     estimated_rpm = long_result.rpm;
+    accept(long_result);
     diagnostic.status = Status::Tracking;
     last_good_ms = now_ms;
     diagnostic.comparison_samples = comparison_samples;
@@ -222,6 +226,13 @@ void RssiRpmEstimator::update(uint32_t now_ms) {
   } else {
     diagnostic.status = jump_rejected ? Status::JumpRejected : Status::Holding;
   }
+}
+
+void RssiRpmEstimator::accept(const Result &result) {
+  // A cached long-window fallback must not pretend to be a new observation.
+  if (!accepted_measurement.rpm ||
+      int32_t(result.timestamp_us - accepted_measurement.timestamp_us) > 0)
+    accepted_measurement = {result.timestamp_us, result.rpm, result.correlation};
 }
 
 bool RssiRpmEstimator::plausible_change(float candidate_rpm, uint32_t now_ms) const {
@@ -395,5 +406,10 @@ RssiRpmEstimator::Result RssiRpmEstimator::analyze(
   const float middle = correlation[selected];
   const float right = correlation[selected + 1];
   const float offset = 0.5f * (left - right) / (left - 2 * middle + right);
-  return {60000.0f / (selected + offset), middle, Status::Tracking};
+  const float rpm = 60000.0f / (selected + offset);
+  // Correlation compares the newest N samples to a segment one period earlier.
+  // For a linear speed ramp, their mean pair-midpoint is this effective epoch.
+  const uint32_t delay = uint32_t(std::lround(((samples - 1) * sample_interval_us +
+                                             60000000.f / rpm) * .5f));
+  return {rpm, middle, Status::Tracking, last_grid_us - delay};
 }

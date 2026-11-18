@@ -20,8 +20,12 @@
 // Optional active-low snapshot button. Connect the chosen free GPIO to GND.
 constexpr int DUMP_BUTTON_PIN = -1;
 
-// Disable RSSI phase corrections to compare with RPM-only dead reckoning.
-constexpr bool RSSI_PHASE_TRACKING = true;
+// A/B comparison with plain RPM integration. No RSSI waveform phase is used.
+constexpr bool RPM_HEADING_COMPENSATION = true;
+// Calibrate the estimated correlation-window delay if required by real runs.
+constexpr float RPM_HEADING_DELAY_SCALE = 1.f;
+static_assert(RPM_HEADING_DELAY_SCALE >= 0 && RPM_HEADING_DELAY_SCALE <= 2,
+              "Heading delay scale must be between 0 and 2");
 
 // found from testing
 #define LED_SHIFT -0.15

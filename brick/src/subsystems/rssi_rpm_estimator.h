@@ -19,6 +19,12 @@ public:
     Status status = Status::Warmup;
   };
 
+  struct Measurement {
+    uint32_t timestamp_us = 0; // Effective midpoint, in the Wi-Fi packet clock.
+    float rpm = 0, correlation = 0;
+  };
+  const Measurement &measurement() const { return accepted_measurement; }
+
   void add_sample(uint32_t timestamp_us, int rssi_dbm);
   // Motor throttle and its calibrated steady-state RPM. The hint only chooses
   // between credible correlation peaks after command/measurement stability.
@@ -49,8 +55,10 @@ private:
   struct Result {
     float rpm = 0, correlation = 0;
     Status status = Status::NoPeak;
+    uint32_t timestamp_us = 0;
   };
   void push(float rssi, bool valid = true);
+  void accept(const Result &result);
   bool plausible_change(float candidate_rpm, uint32_t now_ms) const;
   Result analyze(int samples, int first, int last, float preferred_rpm,
                  float *output = nullptr) const;
@@ -69,6 +77,7 @@ private:
   float previous_candidate_rpm = 0, previous_long_rpm = 0;
   float command_throttle = 0, expected_rpm = 0, last_rssi = 0;
   float estimated_rpm = 0, packet_rate_hz = 0;
+  Measurement accepted_measurement;
   Result long_result;
   Diagnostics diagnostic;
 };
