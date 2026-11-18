@@ -33,7 +33,9 @@ RPM_STATUS = {
     9: "period jump rejected",
 }
 PHASE_STATUS = {0: "unavailable", 1: "acquiring", 2: "phase locked",
-                3: "dead reckoning", 4: "ambiguous antenna lobes"}
+                3: "dead reckoning", 4: "ambiguous antenna lobes",
+                5: "steady RPM-only / RF monitoring", 6: "translation hold",
+                7: "phase discontinuity rejected"}
 PANELS = (
     ("RSSI (dBm)", ("rssi_dbm",)),
     ("RPM", ("rssi_rpm", "fast_rpm", "long_rpm", "target_rpm", "phase_rpm", "true_rpm")),

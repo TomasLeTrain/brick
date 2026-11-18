@@ -143,7 +143,11 @@ void Robot::general_update() {
           ? std::min(target_rpm * RPM_THROTTLE_FEEDFORWARD,
                      config.melt_max_throttle_magnitude) : 0;
   const float steady_rpm = spin_throttle / RPM_THROTTLE_FEEDFORWARD;
-  comms.update_rpm(spin_throttle, steady_rpm);
+  const float command_x = (throttle_packet->right_ud / 1000.f - .5f) * 2;
+  const float command_y = (throttle_packet->right_lr / 1000.f - .5f) * 2;
+  const bool translating = connected == ConnectionState::Ready &&
+      std::hypot(command_x, command_y) / M_SQRT2 >= config.melt_deadzone;
+  comms.update_rpm(spin_throttle, steady_rpm, translating);
   const auto &rssi_estimator = comms.get_rssi_estimator();
   const auto &diagnostic = rssi_estimator.diagnostics();
   const float curr_rpm = rssi_estimator.rpm();

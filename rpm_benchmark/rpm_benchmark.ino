@@ -62,6 +62,7 @@ void runCase(float expected_rpm, bool dump, float end_rpm) {
     start = esp_timer_get_time();
     estimator.set_drive_hint(target / 6784.08434167f, target, last_update / 1000);
     estimator.update(last_update / 1000);
+    phase_tracker.set_drive_hint(target / 6784.08434167f);
     phase_tracker.update(last_update, estimator.rpm());
     const uint32_t duration = esp_timer_get_time() - start;
     updates.add(duration);
@@ -130,32 +131,35 @@ void runPhaseCase() {
   RssiSimulation signal;
   Timing adds, updates;
   uint32_t last_update = 0, checks = 0, locked = 0;
-  float reference = 0, dead_phase = 0, phase_error2 = 0, dead_error2 = 0;
+  float reference = 0, dead_phase = 0, phase_error2 = 0, dead_error2 = 0, previous_rpm = 0;
   bool anchored = false;
-  constexpr float true_rpm = 2100, measured_rpm = .98f * true_rpm;
+  const auto speed = [](int64_t t) {
+    return 1200.f + 1800.f * std::max(0.f, std::min(1.f, (t - 1000000) / 2000000.f));
+  };
   while (signal.time_us() < 6000000) {
-    if (!signal.next(true_rpm)) continue;
+    if (!signal.next(speed(signal.time_us()))) continue;
     uint64_t start = esp_timer_get_time();
     phase_tracker.add_sample(signal.time_us(), signal.time_us(), signal.rssi_dbm());
     adds.add(esp_timer_get_time() - start);
     const uint32_t now = signal.time_us();
     if (now - last_update < 10000) continue;
     if (last_update)
-      dead_phase = RssiPhaseTracker::wrap(dead_phase + measured_rpm * .104719755f *
+      dead_phase = RssiPhaseTracker::wrap(dead_phase + previous_rpm * .104719755f *
                                          float(now - last_update) * 1e-6f);
     last_update = now;
     start = esp_timer_get_time();
+    const float measured_rpm = speed(int64_t(now) - 100000);
+    previous_rpm = measured_rpm;
+    phase_tracker.set_drive_hint((now < 1000000 ? 1200.f : 3000.f) / 6784.f);
     phase_tracker.update(now, measured_rpm);
     updates.add(esp_timer_get_time() - start);
     const auto &phase = phase_tracker.state();
-    if (phase.status == RssiPhaseTracker::Status::Tracking) {
-      ++locked;
-      if (!anchored) {
-        reference = RssiPhaseTracker::wrap(phase.phase_rad - signal.phase_rad());
-        anchored = true;
-      }
+    if (phase.status == RssiPhaseTracker::Status::Tracking) ++locked;
+    if (!anchored && now >= 500000) {
+      reference = RssiPhaseTracker::wrap(phase.phase_rad - signal.phase_rad());
+      anchored = true;
     }
-    if (anchored && now >= 2000000) {
+    if (anchored && now >= 4000000) {
       const float error = RssiPhaseTracker::wrap(phase.phase_rad - signal.phase_rad() - reference);
       const float dead_error = RssiPhaseTracker::wrap(dead_phase - signal.phase_rad() - reference);
       phase_error2 += error * error;
@@ -164,7 +168,7 @@ void runPhaseCase() {
     }
     delay(1);
   }
-  Serial.printf("# phase_bench true_rpm=2100 measured_rpm=2058 locked=%lu/%lu "
+  Serial.printf("# phase_bench ramp_rpm=1200_to_3000 rpm_delay_ms=100 assisting=%lu/%lu "
                 "phase_rmse_deg=%.2f dead_rmse_deg=%.2f "
                 "add_mean_us=%.2f update_mean_us=%.2f update_max_us=%lu "
                 "estimated_cpu_pct=%.2f heap_free_bytes=%lu\n",
@@ -182,7 +186,7 @@ void setup() {
   Serial.printf("# CPU MHz=%lu estimator_bytes=%u phase_tracker_bytes=%u\n",
                 static_cast<unsigned long>(ESP.getCpuFreqMHz()),
                 unsigned(sizeof(RssiRpmEstimator)), unsigned(sizeof(RssiPhaseTracker)));
-  Serial.println("# b benchmarks RPM+phase; p benchmarks biased-RPM phase tracking; d dumps 3000 RPM; r dumps a ramp");
+  Serial.println("# b benchmarks RPM+phase; p benchmarks acceleration phase assistance; d dumps 3000 RPM; r dumps a ramp");
 }
 
 void loop() {

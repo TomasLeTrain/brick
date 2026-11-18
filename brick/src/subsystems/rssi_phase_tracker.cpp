@@ -18,10 +18,19 @@ float RssiPhaseTracker::wrap(float angle) {
 void RssiPhaseTracker::reset() {
   head = size = 0;
   clock_seen = started = have_rate = anchored = false;
-  observation_seen = false;
+  observation_seen = hint_seen = hint_initialized = translating = false;
+  motion_seen = assisting = candidate_seen = rejected = false;
   phase = nominal_rpm = trim_rad_s = reference = 0;
-  good_fits = large_error_fits = 0;
+  filtered_rpm = settling_rpm = 0;
+  good_fits = 0;
   output = {};
+}
+
+void RssiPhaseTracker::set_drive_hint(float throttle, bool moving) {
+  if (!std::isfinite(throttle) || throttle < 0 || throttle > 1) return;
+  throttle_hint = throttle;
+  translating = moving;
+  hint_seen = true;
 }
 
 void RssiPhaseTracker::add_sample(uint32_t radio_us, uint32_t callback_us, int rssi) {
@@ -159,17 +168,75 @@ void RssiPhaseTracker::update(uint32_t now_us, float rpm, bool phase_corrections
   output.rpm = rate_valid ? nominal_rpm + trim_rad_s / rpm_to_rad_s : 0;
   output.confidence = output.error_rad = 0;
   output.status = rate_valid ? Status::Coasting : Status::Unavailable;
-  if (!rate_valid) { good_fits = 0; trim_rad_s = 0; return; }
+  if (!rate_valid) {
+    good_fits = 0;
+    trim_rad_s = 0;
+    assisting = anchored = false;
+    filtered_rpm = 0;
+    return;
+  }
+
+  bool throttle_change = false;
+  if (hint_seen) {
+    if (!hint_initialized) {
+      throttle_anchor = throttle_hint;
+      hint_initialized = true;
+    } else if (std::abs(throttle_hint - throttle_anchor) >= .01f) {
+      throttle_anchor = throttle_hint;
+      throttle_change = true;
+    }
+  }
+  if (translating) { motion_seen = true; last_motion_us = now_us; }
+  if (motion_seen && !translating && now_us - last_motion_us >= 500000)
+    motion_seen = false;
+  const bool motion_hold = motion_seen && now_us - last_motion_us < 500000;
+  const float dt_s = std::min(.1f, dt_us * 1e-6f);
+  if (!filtered_rpm) filtered_rpm = nominal_rpm;
+  filtered_rpm += dt_s / (.08f + dt_s) * (nominal_rpm - filtered_rpm);
+
+  if (motion_hold || !phase_corrections) {
+    // A changed RF bearing must never be repaid as a delayed heading correction
+    // after the sticks return to neutral. Relearn the reference without turning.
+    assisting = anchored = candidate_seen = false;
+    good_fits = 0;
+    trim_rad_s = 0;
+    output.rpm = nominal_rpm;
+    output.status = motion_hold ? Status::MotionHold : Status::Coasting;
+    return;
+  }
+
+  if (throttle_change) {
+    if (!assisting && (!anchored || now_us - reference_us > 150000)) {
+      anchored = false;
+      good_fits = 0;
+    }
+    assisting = true;
+    assist_start_us = settling_us = now_us;
+    settling_rpm = filtered_rpm;
+    rejected = false;
+  }
+  if (assisting) {
+    if (std::abs(filtered_rpm - settling_rpm) >= std::max(15.f, .01f * settling_rpm)) {
+      settling_rpm = filtered_rpm;
+      settling_us = now_us;
+    }
+    if (now_us - assist_start_us >= 3000000 ||
+        (now_us - assist_start_us >= 600000 && now_us - settling_us >= 350000)) {
+      assisting = false;
+      candidate_seen = false;
+    }
+  }
+  if (!assisting) {
+    // At steady speed RSSI is only an observation of the environment, not an
+    // absolute heading sensor. Adapt its reference to DR, never the reverse.
+    trim_rad_s = 0;
+    output.rpm = nominal_rpm;
+    output.status = Status::Monitoring;
+  }
   const auto coast = [&] {
     trim_rad_s *= std::max(0.f, 1.f - float(dt_us) / 200000.f);
     output.rpm = nominal_rpm + trim_rad_s / rpm_to_rad_s;
   };
-  if (!phase_corrections) {
-    trim_rad_s = 0;
-    output.rpm = nominal_rpm;
-    return;
-  }
-  // Never reuse the same observation, or call the expensive fit per packet.
   if (now_us - last_fit_us < 10000) return;
   if (!size) { coast(); return; }
   const uint32_t newest = samples[(head + samples.size() - 1) % samples.size()].radio_us;
@@ -183,50 +250,65 @@ void RssiPhaseTracker::update(uint32_t now_us, float rpm, bool phase_corrections
   bool ambiguous = false;
   if (!fit(nominal_rpm, now_us, observed, center_us, confidence, ambiguous)) {
     coast();
-    good_fits = large_error_fits = 0;
+    good_fits = 0;
     output.confidence = confidence;
-    output.status = ambiguous ? Status::Ambiguous : Status::Coasting;
+    if (ambiguous) output.status = Status::Ambiguous;
     return;
   }
   output.confidence = confidence;
   const float predicted = phase - output.rpm * rpm_to_rad_s * float(now_us - center_us) * 1e-6f;
-  if (!anchored) {
-    const float candidate = wrap(observed - predicted);
+  const float candidate = wrap(observed - predicted);
+  const uint32_t span_us = uint32_t(std::max(40000.f, std::min(300000.f, 120000000.f / nominal_rpm)));
+  if (!assisting || !anchored) {
     if (!good_fits || std::abs(wrap(candidate - candidate_reference)) > .25f) {
-      candidate_reference = candidate;
       acquisition_start_us = now_us;
-      acquisition_delta = 0;
+      candidate_reference = candidate;
       good_fits = 1;
     } else {
-      acquisition_delta += wrap(candidate - candidate_reference);
-      candidate_reference = candidate;
+      candidate_reference = wrap(candidate_reference + .25f * wrap(candidate - candidate_reference));
       ++good_fits;
     }
-    output.status = Status::Acquiring;
-    if (good_fits >= 6) {
-      // Estimate the initial frequency offset from several phase observations.
-      // Project the first reference to now so learning a small RPM bias does
-      // not itself move the heading by half a fit window on initial lock.
-      const float limit = confidence >= .65f ? .02f * nominal_rpm * rpm_to_rad_s : 0;
-      trim_rad_s = std::max(-limit, std::min(limit,
-          acquisition_delta / (float(now_us - acquisition_start_us) * 1e-6f)));
-      reference = wrap(candidate_reference + trim_rad_s * float(now_us - center_us) * 1e-6f);
+    // Require a full fit window of consistency, not three overlapping frames.
+    if (good_fits >= 6 && now_us - acquisition_start_us >= span_us) {
+      reference = candidate_reference;
+      reference_us = now_us;
       anchored = true;
-      output.rpm = nominal_rpm + trim_rad_s / rpm_to_rad_s;
-      output.status = Status::Tracking;
     }
+    if (!assisting) {
+      output.error_rad = anchored ? wrap(candidate - reference) : 0;
+    } else {
+      output.status = Status::Acquiring;
+    }
+    last_candidate = candidate;
+    candidate_us = now_us;
+    candidate_seen = true;
     return;
   }
-  const float error = wrap(observed - reference - predicted);
+  const float error = wrap(candidate - reference);
   output.error_rad = error;
-  if (std::abs(error) > 1.f) {
-    large_error_fits = std::abs(wrap(error - previous_error)) < .25f ? large_error_fits + 1 : 1;
-    previous_error = error;
-    if (large_error_fits < 3) { output.status = Status::Acquiring; return; }
-  } else {
-    large_error_fits = 0;
+  const bool discontinuity = candidate_seen && now_us - candidate_us < 120000 &&
+                             std::abs(wrap(candidate - last_candidate)) > .3f;
+  last_candidate = candidate;
+  candidate_us = now_us;
+  candidate_seen = true;
+  // Consistent multipath can have excellent fit confidence. Persistence never
+  // authorizes a large heading jump. Hold off for a complete independent window
+  // after a discontinuity, and discard the integrator on suspect observations.
+  if (std::abs(error) > .65f || discontinuity) {
+    rejected = true;
+    rejection_us = now_us;
+    trim_rad_s = 0;
+    output.rpm = nominal_rpm;
+    output.status = Status::Rejected;
+    return;
   }
-  const float span_s = std::max(.04f, std::min(.3f, 120.f / nominal_rpm));
+  if (confidence < .45f || (rejected && now_us - rejection_us < span_us)) {
+    coast();
+    output.status = rejected ? Status::Rejected : Status::Coasting;
+    return;
+  }
+  rejected = false;
+  const float span_s = span_us * 1e-6f;
   const float kp = std::min(24.f, 4.f / span_s), ki = kp * kp / 4;
   phase = wrap(phase + std::max(-.12f, std::min(.12f, kp * fit_dt * error)));
   trim_rad_s += ki * fit_dt * error;

@@ -55,6 +55,7 @@ int main(int argc, char **argv) {
       const auto start = std::chrono::steady_clock::now();
       estimator.set_drive_hint(target / 6784.08434167f, target, last_update / 1000);
       estimator.update(last_update / 1000);
+      phase_tracker.set_drive_hint(target / 6784.08434167f);
       phase_tracker.update(last_update, estimator.rpm());
       row.estimator_us = std::chrono::duration_cast<std::chrono::microseconds>(
           std::chrono::steady_clock::now() - start).count();

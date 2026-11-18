@@ -13,7 +13,7 @@ public:
   void update_recorder(bool idle) { recorder.update(peer_link, idle); }
   bool begin();
   void update();
-  void update_rpm(float throttle, float steady_rpm);
+  void update_rpm(float throttle, float steady_rpm, bool translating = false);
   bool connected() const { return peer_link.connected(); }
 
   ThrottlePacket *get_throttle_packet() { return &current_throttle; }

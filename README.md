@@ -63,36 +63,57 @@ autocorrelation approach was inspired by
 
 ## Heading and RSSI phase
 
-`RssiPhaseTracker` maintains a continuous rotor phase, using measured RSSI RPM
-for prediction and reliable RSSI waveform phase for correction. The motor task
-extrapolates a coherent local-clock snapshot at its normal fast-loop rate.
-Changing RPM updates the phase rate without rescaling elapsed rotation time.
-Commanded heading turns integrate into a separate offset, so sensor phase
-corrections do not undo the driver's turns. Turning uses actual elapsed time
-with the previous nominal 1 kHz gain.
+`RssiPhaseTracker` maintains a continuous rotor phase. **At settled speed it
+uses RPM-only dead reckoning**, with no phase corrections or learned frequency
+trim. RSSI waveform phase is monitored and its RF reference follows the current
+integrated heading, so changed transmitter bearing or multipath does not pull
+steady-speed heading toward a new RF pattern.
+
+A throttle change of at least 0.01 (one percentage point of normalized motor
+power, accumulated since the previous change) opens temporary phase assistance.
+This threshold ignores the small controller jitter visible in logs 12–14.
+Assistance lasts at least 600 ms, ends after filtered RPM has been stable for
+350 ms, and is capped at three seconds after the latest throttle change. RPM
+noise alone cannot enable corrections. The 80 ms RPM filter is only for deciding
+when assistance has settled; heading prediction still uses the normal RSSI RPM.
+No acceleration state/predictor is implemented.
+
+Commanded translation, using the same magnitude/deadzone as motor modulation,
+cancels assistance and suppresses it for 500 ms after returning to neutral.
+There is no delayed catch-up to the RF bearing after movement. An unexpected
+collision, motion without a stick command, or transmitter movement cannot be
+identified from these inputs alone; phase assistance can still be affected by
+RF changes during an enabled speed transition. If accelerating while translating,
+this conservative policy deliberately uses RPM-only heading prediction.
 
 The observer fits the latest two rotations (40–300 ms) to a baseline, linear
 fade, and first/second harmonics. It uses the original Wi-Fi hardware packet
 clock mapped to local `micros()` by timestamps captured on the Wi-Fi callback,
-before the application queue. This avoids treating packet-delivery delay as
-rotation. A rolling minimum estimates that clock bridge. Callbacks delayed by
-more than 20 ms are excluded from the phase history.
+before the application queue. A rolling minimum estimates that clock bridge;
+callbacks delayed by more than 20 ms are excluded from the phase history.
 
-Phase confidence combines the detrended fit quality and fundamental power.
-The fundamental must have at least 1.5 dB amplitude, at least 15% of the first
-plus second harmonic power, and confidence at least 0.35. Initial acquisition
-requires six consistent fits. Its RF offset preserves the current heading;
-it does not establish magnetic north or a calibrated chassis direction.
-The offset remains fixed across temporary signal loss. Exactly identical
-antenna lobes lack observable full-turn phase and use dead reckoning instead.
+Phase confidence combines detrended fit quality and fundamental power. The
+fundamental must have at least 1.5 dB amplitude, at least 15% of first plus second
+harmonic power, and confidence at least 0.35 for monitoring, 0.45 for correction.
+Reference acquisition requires at least six consistent fits spanning a full fit
+window. A reference older than 150 ms is reacquired without moving heading.
+Exactly identical antenna lobes lack observable full-turn phase and fall back
+to dead reckoning.
 
-A phase-locked observer corrects phase by at most 0.12 rad per update and trims
-the prediction frequency by at most 3% of measured RPM. Large innovations need
-three consistent observations. Frequency trim decays toward measured RPM when
-phase quality fails. If phase is unavailable but RPM is valid, prediction uses
-that RPM. If RPM also disappears, prediction coasts for at most 300 ms at the
-last rate, then becomes unavailable. A stale fast-task snapshot also expires
-after 300 ms. No acceleration state/predictor is implemented.
+During assistance, phase corrections are capped at 0.12 rad per update and the
+frequency trim at 3% of RPM. Innovations above 0.65 rad are rejected outright;
+a change above 0.3 rad between nearby observations also rejects the observation
+and clears trim. Corrections wait a full fit window after a discontinuity, rather
+than accepting three heavily overlapping fits. Trim decays when quality fails
+and is cleared when assistance ends. If RPM disappears, prediction coasts for
+at most 300 ms, then becomes unavailable; a stale motor-task snapshot also
+expires after 300 ms.
+
+The motor task extrapolates a coherent local-clock snapshot at its fast-loop
+rate. Changing RPM updates the phase rate without rescaling elapsed rotation
+time. Commanded heading turns integrate into a separate offset, so sensor phase
+corrections do not undo driver turns. Turning uses actual elapsed time with the
+previous nominal 1 kHz gain.
 
 Set `RSSI_PHASE_TRACKING = false` in `brick/config.h` to compare RPM-only
 integration with phase corrections disabled. The continuous clock is used in
@@ -181,10 +202,12 @@ serial output and deliberate yields are outside the timed estimator calls.
 This sketch initializes the estimator and serial port. The robot's live dumps
 include `estimator_us` to measure combined update time with normal robot/Wi-Fi activity.
 
-Send `p` in the benchmark sketch for a six-second 2100 RPM signal with an
-artificial 2% RPM under-read. It reports phase RMS error versus RPM-only dead
-reckoning, phase lock counts, phase-only compute timing/load and heap use.
-Errors are relative to the initial acquired orientation, not a compass heading.
+Send `p` in the benchmark sketch for a six-second 1200-to-3000 RPM run with a
+100 ms delayed RPM measurement and a throttle cue. It reports settled phase RMS
+error (after four seconds) versus RPM-only dead reckoning, assistance counts,
+phase-only compute timing/load and heap use. Errors are relative to the
+orientation before the ramp, not a compass heading. Steady RPM bias is no longer
+corrected continuously: steady operation intentionally favors dead reckoning.
 
 Send `d` to print a two-second 3000 RPM simulation as CSV with a `true_rpm`
 and `true_phase_rad` columns and device timings. Send `r` for a continuous-phase 1200-to-3000 RPM
@@ -320,7 +343,8 @@ retains the feedforward-hint flag. CSV exports decode these separately and add
 The motor RPM controller continues using `rssi_rpm`. Legacy raw acceleration
 values remain readable/exportable; legacy phase fields export as unavailable.
 `phase_status` is 0 unavailable, 1 acquiring, 2 phase tracking, 3 dead reckoning,
-4 ambiguous lobes. Phase angles are in radians and have an arbitrary initial offset.
+4 ambiguous lobes, 5 steady RPM-only/RF monitoring, 6 translation hold,
+7 rejected phase discontinuity. Phase angles are in radians and have an arbitrary initial offset.
 
 `rpm_status` values are 0 warm-up, 1 low packet rate, 2 low RSSI variance,
 3 missing sample coverage, 4 no credible period, 5 confirming a period,
@@ -356,7 +380,8 @@ python3 tools/plot_dump.py simulation.csv run.csv --save comparison.pdf
 The graph includes raw RSSI, calculated/fast/long RPM, the feedforward steady
 RPM, motor throttle, estimator update time and packet rate. Version-4 adds wrapped
 rotor phase, phase innovation/confidence and the phase prediction rate. The cursor
-reports whether the observer is phase locked, coasting or rejecting ambiguous lobes. Acceleration fields
+shows whether phase assistance is active, monitoring at steady speed, held by
+translation, or rejecting a discontinuity/ambiguous lobes. Acceleration fields
 remain readable in older dumps and are omitted from the graph.
 The target is a dashed step trace. Measured `rssi_rpm` is drawn above the fast
 estimate so identical values remain visible. The time cursor shows numeric

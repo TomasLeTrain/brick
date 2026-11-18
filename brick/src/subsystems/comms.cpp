@@ -69,10 +69,11 @@ void Comms::update() {
     current_throttle.connected = false;
 }
 
-void Comms::update_rpm(float throttle, float steady_rpm) {
+void Comms::update_rpm(float throttle, float steady_rpm, bool translating) {
   const uint32_t started_us = micros();
   rssi_estimator.set_drive_hint(throttle, steady_rpm, millis());
   rssi_estimator.update(millis());
+  phase_tracker.set_drive_hint(throttle, translating);
   phase_tracker.update(micros(), rssi_estimator.rpm(), RSSI_PHASE_TRACKING);
   estimator_us = micros() - started_us;
 }
