@@ -19,8 +19,10 @@
 // Optional active-low snapshot button. Connect the chosen free GPIO to GND.
 constexpr int DUMP_BUTTON_PIN = -1;
 
-// A/B comparison with plain RPM integration. No RSSI waveform phase is used.
+// Boot defaults; a/t/n serial commands can select the mode until reboot.
 constexpr bool RPM_HEADING_COMPENSATION = true;
+// false: acceleration-only; translation uses plain dead reckoning.
+constexpr bool RPM_HEADING_TRANSLATION_COMPENSATION = false;
 // Calibrate the estimated correlation-window delay if required by real runs.
 constexpr float RPM_HEADING_DELAY_SCALE = 1.f;
 static_assert(RPM_HEADING_DELAY_SCALE >= 0 && RPM_HEADING_DELAY_SCALE <= 2,

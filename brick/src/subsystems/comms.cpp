@@ -5,6 +5,20 @@ namespace {
 constexpr uint32_t throttle_timeout_ms = 100;
 }
 
+const char *Comms::heading_command(char command, void *arg) {
+  auto &tracker = static_cast<Comms *>(arg)->heading_tracker;
+  using Mode = RpmHeadingTracker::CorrectionMode;
+  switch (command) {
+  case 'a': tracker.set_correction_mode(Mode::AccelerationOnly);
+    return "heading acceleration-only; translation uses dead reckoning";
+  case 't': tracker.set_correction_mode(Mode::Full);
+    return "heading correction enabled, including translation";
+  case 'n': tracker.set_correction_mode(Mode::Disabled);
+    return "heading correction disabled; plain dead reckoning";
+  default: return nullptr;
+  }
+}
+
 void Comms::connectionCb(bool connected, void *arg) {
   if (!connected) {
     auto &self = *static_cast<Comms *>(arg);
@@ -60,6 +74,10 @@ bool Comms::send(TelemetryPacket *packet) {
 }
 
 bool Comms::begin() {
+  using Mode = RpmHeadingTracker::CorrectionMode;
+  heading_tracker.set_correction_mode(!RPM_HEADING_COMPENSATION ? Mode::Disabled :
+      RPM_HEADING_TRANSLATION_COMPENSATION ? Mode::Full : Mode::AccelerationOnly);
+  recorder.on_control_command(heading_command, this);
   recorder.begin();
   peer_link.onConnectionChange(connectionCb, this);
   peer_link.onData(dataCb, this);
@@ -98,6 +116,6 @@ void Comms::update_rpm(float throttle, float steady_rpm, bool translating) {
     }
   }
   heading_tracker.set_translation(translating);
-  heading_tracker.update(now, rssi_estimator.rpm(), heading_observation, RPM_HEADING_COMPENSATION);
+  heading_tracker.update(now, rssi_estimator.rpm(), heading_observation);
   estimator_us = micros() - started_us;
 }

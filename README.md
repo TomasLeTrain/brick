@@ -65,7 +65,8 @@ autocorrelation approach was inspired by
 
 `RpmHeadingTracker` uses RPM dead reckoning plus a correction for delayed speed
 measurements. No RSSI waveform phase, antenna orientation, or feedforward target
-is used to correct heading. It runs during translation and speed changes alike.
+is used to correct heading. The default mode corrects spin/acceleration while
+translation uses plain dead reckoning.
 
 The RPM estimator now publishes an effective measurement epoch for each accepted
 period. Correlation compares the latest N samples with a segment one period
@@ -93,6 +94,38 @@ It does **not** step the heading angle. The fast task extrapolates the published
 total heading rate; driver turns remain an independent offset. Initial lock and
 reacquisition after a long outage preserve the current heading. Complete loss of
 valid RPM coasts for at most 300 ms, then freezes prediction.
+
+### Correction modes
+
+The robot boots in **acceleration-only** mode by default. This keeps the existing
+compensator for non-translation operation, including spin acceleration/braking;
+it does not introduce new throttle-edge gating. While translation is commanded,
+heading follows raw-RPM dead reckoning, without prediction or error correction.
+The former translation correction remains available for comparison.
+
+Send a standalone command plus Enter to either ESP (Newline or Both NL & CR):
+
+| Command | Mode |
+| --- | --- |
+| `a` | Acceleration-only; translation correction off |
+| `t` | Correction on, including the guarded translation profile |
+| `n` | All correction off; plain dead reckoning |
+
+These live selections last until reboot. Set `RPM_HEADING_COMPENSATION` and
+`RPM_HEADING_TRANSLATION_COMPENSATION` in `brick/config.h` for boot defaults:
+`true,false` selects acceleration-only; `true,true` enables translation;
+`false` for the first flag disables all correction. Update the sender firmware
+as well as the robot to forward the new live commands; the dump format remains v5.
+
+Changing modes preserves the heading angle and driver-turn offset. Disabling
+translation discards its correction history rather than banking error. Correction
+stays off for 500 ms after neutral, then waits for a measurement whose effective
+epoch is after that interval. It reacquires against the current heading, so it
+cannot replay an earlier movement error after the driver manually corrects it.
+Spin correction is temporarily unavailable during this settling/fresh-data wait.
+
+The following guarded translation behavior applies only when enabled with `t`
+or the corresponding boot flag:
 
 When the translation stick exceeds the same deadzone used for motor modulation,
 a separate translation profile engages over 100 ms. A five-observation median
@@ -123,7 +156,7 @@ response deliberately trades some transient load-change error for smoother
 recovery; large sustained RF-induced RPM errors and steady RPM bias remain
 possible. Updated robot captures are needed to assess these gains on hardware.
 
-Set `RPM_HEADING_COMPENSATION=false` in `brick/config.h` for plain RPM integration.
+Use `n` (or boot with `RPM_HEADING_COMPENSATION=false`) for plain RPM integration.
 `RPM_HEADING_DELAY_SCALE` defaults to 1 and scales the inferred measurement age
 for calibration. This effective-epoch model is approximate, particularly under
 rapid/nonlinear acceleration or changing RF conditions. It cannot remove steady
@@ -175,6 +208,9 @@ c++ -std=c++17 -O2 -Itests/host tests/led_buffer_test.cpp \
 c++ -std=c++17 -O2 -Ibrick/src/subsystems tests/rpm_heading_test.cpp \
     brick/src/subsystems/rpm_heading_tracker.cpp -o /tmp/brick-rpm-heading-test
 /tmp/brick-rpm-heading-test
+c++ -std=c++17 -O2 -Ibrick/src/subsystems tests/heading_mode_test.cpp \
+    brick/src/subsystems/rpm_heading_tracker.cpp -o /tmp/brick-heading-mode-test
+/tmp/brick-heading-mode-test
 c++ -std=c++17 -O2 -Ibrick/src/subsystems tests/translation_heading_test.cpp \
     brick/src/subsystems/rpm_heading_tracker.cpp -o /tmp/brick-translation-test
 /tmp/brick-translation-test
@@ -232,8 +268,8 @@ serial output and use the plotter below.
 
 ## Save a robot run
 
-Serial commands on **both** ESPs require a standalone letter and Enter: `s`, `p`,
-`e`, `f`, or `x`. Set Serial Monitor line endings to Newline or Both NL & CR.
+Serial dump commands on **both** ESPs require a standalone letter and Enter:
+`s`, `p`, `e`, `f`, or `x`. The heading controls `a`, `t`, `n` use the same format. Set Serial Monitor line endings to Newline or Both NL & CR.
 Boot and link connection do not request an export. Partial input or embedded
 letters in startup/echo text cannot trigger one. Controller capture still uses
 an actual SWB high-to-low edge; its initial position is not a trigger.
@@ -358,7 +394,8 @@ hold `heading_rad`, `heading_error_rad` (pending error, not an angle step), and
 bounded acceleration prediction and the angular error correction rate. Motor
 speed control still uses raw `rssi_rpm`. The upper bits of `hint_used` encode
 `heading_status`: 8 unavailable, 9 plain dead reckoning, 10 delay compensation,
-11 coasting, 12 translation noise guard, 13 translation coherent-trend tracking.
+11 coasting, 12 translation noise guard, 13 translation coherent-trend tracking,
+14 translation correction off/settling, 15 waiting for a fresh RPM epoch.
 Bit 0 retains the feedforward-hint flag.
 
 V4 RF phase/error/confidence and v1–v3 acceleration slots remain separately

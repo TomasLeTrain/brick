@@ -66,7 +66,7 @@ void setup() {
     while (true) delay(1000);
   }
   Serial.println("Broadcasting discovery; waiting for slave...");
-  Serial.println("# dump commands s/p/e/f/x require Enter; exports are manual");
+  Serial.println("# commands s/p/e/f/x; heading a=accel-only t=translation-on n=off; press Enter");
 }
 
 uint32_t last_cnt_rec_update = 0;

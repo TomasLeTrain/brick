@@ -6,7 +6,12 @@
 // project to now. This never uses RF waveform phase or throttle as a speed sensor.
 class RpmHeadingTracker {
 public:
-  enum class Status : uint8_t { Unavailable = 8, DeadReckoning, Correcting, Coasting, Translation, TranslationTrend };
+  enum class Status : uint8_t { Unavailable = 8, DeadReckoning, Correcting, Coasting, Translation, TranslationTrend, TranslationDisabled, WaitingForFreshEpoch };
+  enum class CorrectionMode : uint8_t { Disabled, AccelerationOnly, Full };
+  void set_correction_mode(CorrectionMode mode) {
+    if (correction_mode_value != mode) { correction_mode_value = mode; mode_changed = true; }
+  }
+  CorrectionMode correction_mode() const { return correction_mode_value; }
   struct TranslationTuning {
     float response_s = .2f;
     float max_correction_rad_s = 2.f;
@@ -43,7 +48,12 @@ private:
   bool source_seen = false, translation_requested = false, translation_seen = false, motion_noise_seen = false;
   uint32_t source_time = 0, last_translation = 0, last_motion_noise = 0;
   float translation_blend = 0;
+  CorrectionMode correction_mode_value = CorrectionMode::Full;
+  bool mode_changed = false, correction_suppressed = false, awaiting_epoch = false;
+  uint32_t resume_epoch = 0;
+  float nominal_rate = 0;
   State output;
+  void discard_correction();
   Observation motion_observation(uint32_t now, const Observation &measurement);
   float guard_weight() const;
   void update_translation(uint32_t now, uint32_t dt_us);

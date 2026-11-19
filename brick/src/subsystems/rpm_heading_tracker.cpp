@@ -20,8 +20,15 @@ void RpmHeadingTracker::reset() {
   heading = rate = anchor_heading = anchor_rpm = prediction_rpm = acceleration = feedback_rad_s = applied_feedback_rad_s = 0;
   source_seen = translation_requested = translation_seen = motion_noise_seen = false;
   motion_head = motion_size = 0;
-  translation_blend = 0;
+  translation_blend = nominal_rate = 0;
+  mode_changed = correction_suppressed = awaiting_epoch = false;
   output = {};
+}
+void RpmHeadingTracker::discard_correction() {
+  anchored = false;
+  head = size = motion_head = motion_size = 0;
+  source_seen = motion_noise_seen = false;
+  acceleration = feedback_rad_s = applied_feedback_rad_s = 0;
 }
 void RpmHeadingTracker::update_translation(uint32_t now, uint32_t dt_us) {
   if (motion_noise_seen && now - last_motion_noise >= 500000) motion_noise_seen = false;
@@ -179,7 +186,7 @@ void RpmHeadingTracker::update(uint32_t now, float nominal, const Observation &m
   if (valid_rpm(nominal)) {
     last_rate = now;
     have_rate = true;
-    rate = nominal;
+    nominal_rate = rate = nominal;
   }
   const bool live = have_rate && now - last_rate < coast_us;
   output = {};
@@ -190,9 +197,39 @@ void RpmHeadingTracker::update(uint32_t now, float nominal, const Observation &m
   output.rpm = live ? rate : 0;
   output.status = live ? Status::DeadReckoning : Status::Unavailable;
   if (!live) { anchored = false; size = head = 0; acceleration = feedback_rad_s = applied_feedback_rad_s = 0; return; }
-  if (!compensate) {
-    anchored = false; size = head = 0; acceleration = feedback_rad_s = applied_feedback_rad_s = 0;
+  const bool motion_disabled = correction_mode_value == CorrectionMode::AccelerationOnly && translation_seen;
+  const bool suppressed = !compensate || correction_mode_value == CorrectionMode::Disabled || motion_disabled;
+  if (mode_changed || suppressed != correction_suppressed) {
+    discard_correction();
+    resume_epoch = now;
+    awaiting_epoch = true;
+    mode_changed = false;
+  }
+  correction_suppressed = suppressed;
+  if (suppressed) {
+    // Never bank movement error to repay after the driver has corrected it.
+    discard_correction();
+    resume_epoch = now;
+    awaiting_epoch = true;
+    translation_blend = 0;
+    rate = nominal_rate; // Includes proper raw-RPM coasting during a speed loss.
+    output.rpm = rate;
+    output.translation_blend = 0;
+    output.status = motion_disabled ? Status::TranslationDisabled : Status::DeadReckoning;
     return;
+  }
+  if (awaiting_epoch) {
+    // A cached measurement can arrive after neutral yet still describe movement.
+    // Require an effective epoch after the suppression/settling interval.
+    const uint32_t age = now - m.timestamp_us;
+    if (!valid_rpm(m.rpm) || !std::isfinite(m.correlation) || m.correlation < .6f ||
+        int32_t(m.timestamp_us - resume_epoch) < 0 || int32_t(age) < 0 || age > max_age_us) {
+      rate = nominal_rate;
+      output.rpm = rate;
+      output.status = Status::WaitingForFreshEpoch;
+      return;
+    }
+    awaiting_epoch = false;
   }
   observe(now, motion_observation(now, m));
   if (!anchored || now - last_observation > coast_us) {

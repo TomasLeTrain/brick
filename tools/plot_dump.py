@@ -38,7 +38,8 @@ PHASE_STATUS = {0: "unavailable", 1: "acquiring", 2: "phase locked",
                 7: "phase discontinuity rejected"}
 HEADING_STATUS = {8: "heading unavailable", 9: "RPM dead reckoning",
                   10: "RPM delay compensation", 11: "RPM coasting", 12: "translation noise guard",
-                  13: "translation coherent RPM trend"}
+                  13: "translation coherent RPM trend",
+                  14: "translation correction disabled", 15: "waiting for fresh RPM epoch"}
 PANELS = (
     ("RSSI (dBm)", ("rssi_dbm",)),
     ("RPM", ("rssi_rpm", "fast_rpm", "long_rpm", "target_rpm", "phase_rpm", "heading_rpm", "true_rpm")),

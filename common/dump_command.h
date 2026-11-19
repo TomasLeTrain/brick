@@ -18,7 +18,8 @@ public:
     if (length) invalid = true;
     else {
       command = byte;
-      invalid = byte != 's' && byte != 'p' && byte != 'e' && byte != 'f' && byte != 'x';
+      invalid = byte != 's' && byte != 'p' && byte != 'e' && byte != 'f' && byte != 'x' &&
+                byte != 'a' && byte != 't' && byte != 'n';
       length = 1;
     }
     return 0;

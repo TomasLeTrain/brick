@@ -26,6 +26,7 @@ public:
   uint32_t dropped_rssi() const { return peer_link.droppedRssiSamples(); }
 
 private:
+  static const char *heading_command(char command, void *arg);
   static void connectionCb(bool connected, void *arg);
   static void dataCb(const uint8_t *data, size_t length, int rssi_dbm,
                      uint32_t timestamp_us, void *arg);

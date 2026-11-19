@@ -10,6 +10,10 @@ static_assert(RunDump::prefix_size + sizeof(RunDump::Record) <= NowPair::MAX_PAY
 
 class RunRecorder {
 public:
+  using ControlCommand = const char *(*)(char command, void *arg);
+  void on_control_command(ControlCommand callback, void *arg) {
+    control_command = callback; control_arg = arg;
+  }
   void begin();
   void add_rssi(int rssi_dbm, uint32_t radio_us);
   void add_rssi(int rssi_dbm, uint32_t radio_us, uint32_t callback_us);
@@ -58,6 +62,8 @@ private:
   RunDump::Record state{};
   size_t head = 0, count = 0, saved = 0;
   uint32_t overwritten = 0, paused = 0, checksum = UINT32_MAX;
+  ControlCommand control_command = nullptr;
+  void *control_arg = nullptr;
   DumpCommand serial_command;
   bool mounted = false, radio_export = false, ram_export = false;
   CapturePhase phase = CapturePhase::Rolling;

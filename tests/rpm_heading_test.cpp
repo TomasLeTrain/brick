@@ -13,8 +13,9 @@ float speed(int64_t t, bool braking) {
 }
 }
 int main() {
-  for (bool braking : {false, true}) for (bool varying_delay : {false, true}) {
+  for (bool acceleration_only : {false, true}) for (bool braking : {false, true}) for (bool varying_delay : {false, true}) {
     RpmHeadingTracker tracker, dead;
+    if (acceleration_only) tracker.set_correction_mode(RpmHeadingTracker::CorrectionMode::AccelerationOnly);
     const uint32_t origin = UINT32_MAX - 800000;
     double truth = 0;
     float reference = 0, rms = 0, dead_rms = 0, peak = 0;
@@ -41,7 +42,7 @@ int main() {
         rms += e * e; dead_rms += d * d; ++checks;
       }
     }
-    std::cout << "braking=" << braking << " variable_delay=" << varying_delay
+    std::cout << "acceleration_only=" << acceleration_only << " braking=" << braking << " variable_delay=" << varying_delay
               << " RMS=" << std::sqrt(rms / checks) * 57.29578f
               << " DR=" << std::sqrt(dead_rms / checks) * 57.29578f
               << " peak=" << peak * 57.29578f << " degrees\n";

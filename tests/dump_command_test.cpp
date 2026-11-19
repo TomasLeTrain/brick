@@ -15,4 +15,9 @@ int main() {
   assert(parser.feed('\n') == 0);
   for (unsigned i = 0; i < 100000; ++i) assert(parser.feed('e') == 0);
   assert(parser.feed('\n') == 0);
+  for (char command : {'a', 't', 'n'}) {
+    assert(parser.feed(command) == 0);
+    assert(parser.feed('\n') == command);
+  }
+
 }

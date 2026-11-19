@@ -106,6 +106,13 @@ void RunRecorder::add_state(const RunDump::Record &new_state) {
 }
 
 void RunRecorder::request(char command) {
+  // Heading controls are independent of a capture/export already in progress.
+  if (control_command) {
+    if (const char *reply = control_command(command, control_arg)) {
+      status(reply);
+      return;
+    }
+  }
   if (command == 'x') {
     if (serial_export || radio_export || export_requested)
       stop_export("export cancelled; snapshot retained");
