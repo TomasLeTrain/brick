@@ -1,8 +1,8 @@
 #pragma once
 
 #include "../../config.h"
-#include "pid.h"
 #include "heading_clock.h"
+#include "pid.h"
 #include <cstdint>
 
 enum TranslationMethod { Square, Sine, Linear };
@@ -54,11 +54,12 @@ struct MeltOutput {
 struct MeltConfig {
   // the absolute max that is applied to motor for translation
   // on range [0, 1]
-  float max_translation_power = 0.1;
+  // float max_translation_power = 0.1;
+  float max_translation_power = 0.15;
   TranslationMethod translation_method = TranslationMethod::Sine;
 
   // how sensitive turning for melt is
-  float turn_magnitude_pct = 0.0013;
+  float turn_magnitude_pct = 0.0012;
 
   float max_target_rpm = 3000;
 
@@ -87,10 +88,10 @@ struct MeltConfig {
   float tank_max_motor_mag = 0.2;
 
   float heading_led_width = 0.5f;
-  float vector_led_width = 0.02f;
+  float vector_led_width = 0.03f;
 
   // rpm must reach above this to be considered melting
-  float min_melting_rpm = 400;
+  float min_melting_rpm = 500;
 
   // only apply target_rpm_control when its above this threshold
   // on range [0, 1]
@@ -117,8 +118,9 @@ public:
   // General-loop intent, independent of the motor task's last applied output.
   // Zero RPM request can select tank mode, which may still command movement.
   bool has_motor_command() const {
-    return active_drive_type == DriveType::Melting ? base_spin_power != 0 :
-        tank_left_power != 0 || tank_right_power != 0;
+    return active_drive_type == DriveType::Melting
+               ? base_spin_power != 0
+               : tank_left_power != 0 || tank_right_power != 0;
   }
 
   // recalculates all values dependent on input

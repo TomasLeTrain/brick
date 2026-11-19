@@ -5,7 +5,6 @@
 
 #define NUM_LEDS 8
 
-// #define NEOPIXEL_PIN GPIO_NUM_2
 #define NEOPIXEL_PIN GPIO_NUM_1
 #define LEFT_MOTOR_PIN GPIO_NUM_2
 #define RIGHT_MOTOR_PIN GPIO_NUM_3
@@ -33,10 +32,11 @@ constexpr float RPM_HEADING_TRANSLATION_RESPONSE_MS = 200;
 constexpr float RPM_HEADING_TRANSLATION_MAX_CORRECTION_RAD_S = 2;
 constexpr float RPM_HEADING_TRANSLATION_PREDICTION_MS = 120;
 static_assert(RPM_HEADING_TRANSLATION_RESPONSE_MS >= 100 &&
-              RPM_HEADING_TRANSLATION_MAX_CORRECTION_RAD_S > 0 &&
-              RPM_HEADING_TRANSLATION_MAX_CORRECTION_RAD_S <= 4 &&
-              RPM_HEADING_TRANSLATION_PREDICTION_MS > 0 &&
-              RPM_HEADING_TRANSLATION_PREDICTION_MS <= 120, "Invalid translation heading tuning");
+                  RPM_HEADING_TRANSLATION_MAX_CORRECTION_RAD_S > 0 &&
+                  RPM_HEADING_TRANSLATION_MAX_CORRECTION_RAD_S <= 4 &&
+                  RPM_HEADING_TRANSLATION_PREDICTION_MS > 0 &&
+                  RPM_HEADING_TRANSLATION_PREDICTION_MS <= 120,
+              "Invalid translation heading tuning");
 
 // found from testing
 #define LED_SHIFT -0.15
@@ -45,8 +45,6 @@ static_assert(RPM_HEADING_TRANSLATION_RESPONSE_MS >= 100 &&
 #define KP 0.0f
 #define KI 0.0f
 #define RPM_THROTTLE_FEEDFORWARD (1.f / 6784.08434167f)
-// using throttle with bidirectional while issues get figured out, feedforward needs to get scaled accordingly
-// #define RPM_THROTTLE_FEEDFORWARD (2.f / 6784.08434167f)
 
 // max +-0.05 throttle correction from integral
 #define MAX_INTEGRAL 0.05f
