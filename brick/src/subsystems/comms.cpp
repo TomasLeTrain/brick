@@ -77,7 +77,7 @@ void Comms::update() {
   }
 }
 
-void Comms::update_rpm(float throttle, float steady_rpm) {
+void Comms::update_rpm(float throttle, float steady_rpm, bool translating) {
   const uint32_t started_us = micros();
   rssi_estimator.set_drive_hint(throttle, steady_rpm, millis());
   rssi_estimator.update(millis());
@@ -97,6 +97,7 @@ void Comms::update_rpm(float throttle, float steady_rpm) {
                              measurement.rpm, measurement.correlation};
     }
   }
+  heading_tracker.set_translation(translating);
   heading_tracker.update(now, rssi_estimator.rpm(), heading_observation, RPM_HEADING_COMPENSATION);
   estimator_us = micros() - started_us;
 }

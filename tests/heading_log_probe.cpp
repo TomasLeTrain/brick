@@ -16,12 +16,13 @@ int main() {
       std::cin >> local >> rssi;
       clock.observe(t, local);
       estimator.add_sample(t, rssi);
-    } else if (kind == 'u') {
+    } else if (kind == 'u' || kind == 't') {
       float throttle, target;
       std::cin >> throttle >> target;
       estimator.set_drive_hint(throttle, target, t / 1000);
       estimator.update(t / 1000);
       const auto &m = estimator.measurement();
+      tracker.set_translation(kind == 't');
       tracker.update(t, estimator.rpm(), {clock.local(m.timestamp_us), m.rpm, m.correlation});
       const auto &s = tracker.state();
       std::cout << s.heading_rad << ' ' << s.rpm << ' ' << s.error_rad << ' '

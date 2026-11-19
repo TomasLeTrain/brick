@@ -94,6 +94,35 @@ total heading rate; driver turns remain an independent offset. Initial lock and
 reacquisition after a long outage preserve the current heading. Complete loss of
 valid RPM coasts for at most 300 ms, then freezes prediction.
 
+When the translation stick exceeds the same deadzone used for motor modulation,
+a separate translation profile engages over 100 ms. A five-observation median
+checks suspicious heading-RPM innovations before they can enter the retrospective
+integral; normal smooth RPM changes pass immediately. The fallback median is
+timestamped at its center sample, so confirmation does not turn filter delay
+into additional heading error. Large isolated one/two-observation spikes are withheld from the integral,
+while sustained speed changes can be confirmed. Smaller changes below the
+plausibility threshold still follow the measured RPM.
+This filter affects heading only; motor RPM estimation/control is unchanged.
+
+Weak trends use a 200 ms error response, a 2 rad/s correction cap, bounded
+correction-rate slew, and smoothing/slew limits on the total heading rate.
+Prediction increments are limited to 8% / 180 RPM and 1800 RPM/s while this guard
+is fully engaged. Coherent acceleration trends progressively regain the existing
+faster response; a suspect observation keeps the guard engaged for 300 ms, then blends its
+influence out over 200 ms.
+The guard holds for 500 ms after neutral, then blends out over 300 ms. Mode
+changes do not re-zero heading or reinterpret the measurement clock/epoch.
+The non-translation acceleration gains remain unchanged.
+
+Tune `RPM_HEADING_TRANSLATION_RESPONSE_MS`,
+`RPM_HEADING_TRANSLATION_MAX_CORRECTION_RAD_S`, and
+`RPM_HEADING_TRANSLATION_PREDICTION_MS` independently in `brick/config.h`.
+The prediction horizon defaults to the existing 120 ms: translation intent alone
+is not evidence that the physical measurement delay changed. The slower guarded
+response deliberately trades some transient load-change error for smoother
+recovery; large sustained RF-induced RPM errors and steady RPM bias remain
+possible. Updated robot captures are needed to assess these gains on hardware.
+
 Set `RPM_HEADING_COMPENSATION=false` in `brick/config.h` for plain RPM integration.
 `RPM_HEADING_DELAY_SCALE` defaults to 1 and scales the inferred measurement age
 for calibration. This effective-epoch model is approximate, particularly under
@@ -146,6 +175,9 @@ c++ -std=c++17 -O2 -Itests/host tests/led_buffer_test.cpp \
 c++ -std=c++17 -O2 -Ibrick/src/subsystems tests/rpm_heading_test.cpp \
     brick/src/subsystems/rpm_heading_tracker.cpp -o /tmp/brick-rpm-heading-test
 /tmp/brick-rpm-heading-test
+c++ -std=c++17 -O2 -Ibrick/src/subsystems tests/translation_heading_test.cpp \
+    brick/src/subsystems/rpm_heading_tracker.cpp -o /tmp/brick-translation-test
+/tmp/brick-translation-test
 c++ -std=c++17 -O2 -Ibrick/src/subsystems tests/rpm_epoch_test.cpp \
     brick/src/subsystems/rssi_rpm_estimator.cpp -o /tmp/brick-epoch-test
 /tmp/brick-epoch-test
@@ -326,7 +358,8 @@ hold `heading_rad`, `heading_error_rad` (pending error, not an angle step), and
 bounded acceleration prediction and the angular error correction rate. Motor
 speed control still uses raw `rssi_rpm`. The upper bits of `hint_used` encode
 `heading_status`: 8 unavailable, 9 plain dead reckoning, 10 delay compensation,
-11 coasting. Bit 0 retains the feedforward-hint flag.
+11 coasting, 12 translation noise guard, 13 translation coherent-trend tracking.
+Bit 0 retains the feedforward-hint flag.
 
 V4 RF phase/error/confidence and v1–v3 acceleration slots remain separately
 readable/exportable. Latest CSVs append heading fields; unavailable fields are

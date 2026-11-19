@@ -14,7 +14,7 @@ public:
   void update_recorder(bool idle) { recorder.update(peer_link, idle); }
   bool begin();
   void update();
-  void update_rpm(float throttle, float steady_rpm);
+  void update_rpm(float throttle, float steady_rpm, bool translating = false);
   bool connected() const { return peer_link.connected(); }
 
   ThrottlePacket *get_throttle_packet() { return &current_throttle; }
@@ -33,7 +33,9 @@ private:
 
   NowPair peer_link{NowPair::Role::Slave, 6, HEARTBEAT_MS, TIMEOUT_MS};
   RssiRpmEstimator rssi_estimator;
-  RpmHeadingTracker heading_tracker;
+  RpmHeadingTracker heading_tracker{{RPM_HEADING_TRANSLATION_RESPONSE_MS * .001f,
+                                     RPM_HEADING_TRANSLATION_MAX_CORRECTION_RAD_S,
+                                     RPM_HEADING_TRANSLATION_PREDICTION_MS * .001f}};
   RadioClock radio_clock;
   RpmHeadingTracker::Observation heading_observation;
   bool heading_observed = false;

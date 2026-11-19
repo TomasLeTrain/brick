@@ -4,6 +4,7 @@ import math
 import subprocess
 import sys
 import tempfile
+import itertools
 import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
@@ -18,8 +19,8 @@ class HeadingLogs(unittest.TestCase):
                             str(ROOT / 'tests/heading_log_probe.cpp'),
                             str(src / 'rssi_rpm_estimator.cpp'),
                             str(src / 'rpm_heading_tracker.cpp'), '-o', str(binary)], check=True)
-            for name in ('log7', 'log8', 'log9', 'log10', 'log12', 'log13', 'log14'):
-                with self.subTest(log=name):
+            for name, motion in itertools.product(('log7', 'log8', 'log9', 'log10', 'log12', 'log13', 'log14'), (False, True)):
+                with self.subTest(log=name, forced_motion=motion):
                     rows = plot_dump.load(ROOT / 'logs' / (name + '.csv'))[-1].rows
                     legacy = name in ('log7', 'log8', 'log9', 'log10')
                     offset = min((int(r['received_us']) - int(r['timestamp_us']) + 2**31) % 2**32 - 2**31
@@ -32,13 +33,15 @@ class HeadingLogs(unittest.TestCase):
                             source.append(f"r {radio} {callback} {int(r['rssi_dbm'])}\n")
                         else:
                             t = int(r['timestamp_us'])
-                            source.append(f"u {t} {r['throttle']} {r['target_rpm']}\n")
+                            source.append(f"{'t' if motion else 'u'} {t} {r['throttle']} {r['target_rpm']}\n")
                             times.append(t)
                     values = [list(map(float, x.split())) for x in
                               subprocess.check_output([str(binary)], input=''.join(source), text=True).splitlines()]
                     self.assertEqual(len(values), len(times))
                     self.assertTrue(all(math.isfinite(x) for row in values for x in row))
-                    self.assertTrue(any(v[4] == 10 for v in values))
+                    # These captures do not record translation commands. Exercise both
+                    # profiles for numerical stability, without claiming heading accuracy.
+                    self.assertTrue(any(v[4] in ((12, 13) if motion else (10,)) for v in values))
                     for i in range(1, len(values)):
                         dt = (times[i] - times[i-1]) % 2**32 / 1e6
                         if dt > .05 or values[i-1][4] == 8:
