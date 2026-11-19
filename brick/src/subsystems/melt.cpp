@@ -79,7 +79,8 @@ void Melt::general_update() {
 
     // Preserve the previous nominal 1 kHz turning gain, but integrate actual
     // elapsed time independently of rotor phase and RSSI corrections.
-    turn_rate_rad_s = 2 * M_PI * 1000 * turn_control * config.turn_magnitude_pct;
+    turn_rate_rad_s =
+        2 * M_PI * 1000 * turn_control * config.turn_magnitude_pct;
 
     vector_direction_multiplier = input.is_upright ? 1 : -1;
 
@@ -137,7 +138,7 @@ void Melt::general_update() {
     tank_right_power = -(linear + angular);
 
     // desaturate
-    float max_mag = std::max(tank_left_power, tank_right_power);
+    float max_mag = fmaxf(fabsf(tank_left_power), fabsf(tank_right_power));
     if (max_mag > config.tank_max_motor_mag) {
       float multiplier = config.tank_max_motor_mag / max_mag;
       tank_left_power *= multiplier;
@@ -148,8 +149,9 @@ void Melt::general_update() {
 
 // updates fast loop params for how to move motors
 void Melt::fast_update() {
-  const float theta = heading.render(micros(), active_drive_type == DriveType::Melting
-                                                  ? turn_rate_rad_s.load() : 0);
+  const float theta = heading.render(
+      micros(),
+      active_drive_type == DriveType::Melting ? turn_rate_rad_s.load() : 0);
   if (active_drive_type == DriveType::Melting) {
     fast_update_melt(theta);
   } else if (active_drive_type == DriveType::Tank) {
@@ -173,7 +175,8 @@ void Melt::fast_update_tank() {
 
 // TODO: change multipliers to allow int-only math
 void Melt::fast_update_melt(float current_theta) {
-  const int32_t rotation_pct_us = current_theta / (2 * M_PI) * rotation_time_micros;
+  const int32_t rotation_pct_us =
+      current_theta / (2 * M_PI) * rotation_time_micros;
 
   // Calculate diff in range -PI to PI
   float diff = current_theta - target_theta;
