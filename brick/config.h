@@ -46,7 +46,8 @@ static_assert(RPM_HEADING_TRANSLATION_RESPONSE_MS >= 100 &&
 // look in pid.h for explanation of these values
 #define KP 0.0f
 #define KI 0.0f
-#define RPM_THROTTLE_FEEDFORWARD (1.f / 6784.08434167f)
+// found from data fit
+#define RPM_THROTTLE_FEEDFORWARD (1.f / (6784.08434167f * 1.33333))
 
 // max +-0.05 throttle correction from integral
 #define MAX_INTEGRAL 0.05f

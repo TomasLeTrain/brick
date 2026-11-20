@@ -11,14 +11,29 @@ void Robot::begin() {
   const esp_reset_reason_t reset = esp_reset_reason();
   const char *reason = "other";
   switch (reset) {
-  case ESP_RST_POWERON: reason = "power-on"; break;
-  case ESP_RST_SW: reason = "software"; break;
-  case ESP_RST_PANIC: reason = "panic"; break;
-  case ESP_RST_INT_WDT: reason = "interrupt-watchdog"; break;
-  case ESP_RST_TASK_WDT: reason = "task-watchdog"; break;
-  case ESP_RST_WDT: reason = "watchdog"; break;
-  case ESP_RST_BROWNOUT: reason = "brownout"; break;
-  default: break;
+  case ESP_RST_POWERON:
+    reason = "power-on";
+    break;
+  case ESP_RST_SW:
+    reason = "software";
+    break;
+  case ESP_RST_PANIC:
+    reason = "panic";
+    break;
+  case ESP_RST_INT_WDT:
+    reason = "interrupt-watchdog";
+    break;
+  case ESP_RST_TASK_WDT:
+    reason = "task-watchdog";
+    break;
+  case ESP_RST_WDT:
+    reason = "watchdog";
+    break;
+  case ESP_RST_BROWNOUT:
+    reason = "brownout";
+    break;
+  default:
+    break;
   }
   Serial.printf("# boot reset_reason=%d (%s)\n", int(reset), reason);
   // TODO: check for any begin errors and report with leds
@@ -26,37 +41,6 @@ void Robot::begin() {
 
   left_motor.begin(LEFT_MOTOR_PIN, DSHOT600, false, 14);
   right_motor.begin(RIGHT_MOTOR_PIN, DSHOT600, false, 14);
-
-  // Serial.println("init accel");
-
-  // set up I2C
-  // Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
-  // Wire.setClock(400'000);
-  // // 10 msec timeout should be more than enough
-  // Wire.setTimeout(10);
-  // Serial.println("init i2c");
-
-  // accel.init(0x18);
-
-  // small wait needed before interacting with accelerometer
-  // delay(20);
-
-  // // try and sample once to see if there is a connection error or not
-  // accel.sample_offset();
-
-  // // only calibrate if accel is properly connected
-  // if (!accel.has_connection_error()) {
-  //   // sample offset
-  //   // TODO: move to other place/when should this happen?
-  //   for (int i = 0; i < 60; i++) {
-  //     accel.sample_offset();
-  //     delay(1);
-  //   }
-
-  //   Serial.println("did accel");
-  // } else {
-  //   Serial.println("failed accel init!");
-  // }
 
   // NOTE: if comms used within 800 msec if startup then a temporary
   // disconnect can occur shouldn't cause an issue so no delay is added here
@@ -69,11 +53,6 @@ void Robot::begin() {
   pid->setKi(KI);
   pid->setFeedforward(RPM_THROTTLE_FEEDFORWARD);
   pid->setMaxIntegral(MAX_INTEGRAL);
-
-  // init z accel queue
-  // for (int i = 0; i < sizeof(z_accel_queue) / sizeof(z_accel_queue[0]); i++) {
-  //   z_accel_queue[i] = 0.0;
-  // }
 }
 
 // blocking
@@ -108,13 +87,6 @@ void Robot::general_update() {
   uint16_t raw_y = 0;
   uint16_t raw_z = 0;
 
-  // float x = accel.get_x_accel(false);
-  // float y = accel.get_y_accel(false);
-  // float z = accel.get_z_accel(false);
-  // uint16_t raw_x = accel.get_raw_x_accel();
-  // uint16_t raw_y = accel.get_raw_y_accel();
-  // uint16_t raw_z = accel.get_raw_z_accel();
-
   // update z accel buffer
   update_z_buffer(z);
 
@@ -126,8 +98,8 @@ void Robot::general_update() {
     connected = ConnectionState::NetworkDisconnect;
   } else if (!throttle_packet->connected) {
     connected = ConnectionState::ControllerDisconnect;
-  // } else if (accel_disconnected) {
-  //   connected = ConnectionState::AccelDisconnect;
+    // } else if (accel_disconnected) {
+    //   connected = ConnectionState::AccelDisconnect;
   } else if (!throttle_packet->swa) {
     connected = ConnectionState::SpinSwitchOff;
   } else {
@@ -139,20 +111,23 @@ void Robot::general_update() {
   const float target_rpm = requested_speed * config.max_target_rpm;
   const float spin_throttle =
       connected == ConnectionState::Ready &&
-      requested_speed >= config.target_rpm_control_deadzone
+              requested_speed >= config.target_rpm_control_deadzone
           ? std::min(target_rpm * RPM_THROTTLE_FEEDFORWARD,
-                     config.melt_max_throttle_magnitude) : 0;
+                     config.melt_max_throttle_magnitude)
+          : 0;
   const float steady_rpm = spin_throttle / RPM_THROTTLE_FEEDFORWARD;
   const float command_x = (throttle_packet->right_ud / 1000.f - .5f) * 2;
   const float command_y = (throttle_packet->right_lr / 1000.f - .5f) * 2;
-  const bool translating = connected == ConnectionState::Ready &&
+  const bool translating =
+      connected == ConnectionState::Ready &&
       std::hypot(command_x, command_y) / M_SQRT2 >= config.melt_deadzone;
   comms.update_rpm(spin_throttle, steady_rpm, translating);
   const auto &rssi_estimator = comms.get_rssi_estimator();
   const auto &diagnostic = rssi_estimator.diagnostics();
   const float curr_rpm = rssi_estimator.rpm();
   const auto &heading = comms.get_heading_tracker().state();
-  melt.set_phase_reference(heading.timestamp_us, heading.heading_rad, heading.rpm);
+  melt.set_phase_reference(heading.timestamp_us, heading.heading_rad,
+                           heading.rpm);
 
   RunDump::Record sample{};
   sample.timestamp_us = heading.timestamp_us;
@@ -172,15 +147,18 @@ void Robot::general_update() {
   sample.comparison_samples = diagnostic.comparison_samples;
   sample.min_lag = diagnostic.min_lag;
   sample.max_lag = diagnostic.max_lag;
-  sample.tracking_mode = diagnostic.mode |
-      (static_cast<uint8_t>(diagnostic.status) << 2);
-  sample.hint_used = uint8_t(diagnostic.hint_used) | (uint8_t(heading.status) << 1);
+  sample.tracking_mode =
+      diagnostic.mode | (static_cast<uint8_t>(diagnostic.status) << 2);
+  sample.hint_used =
+      uint8_t(diagnostic.hint_used) | (uint8_t(heading.status) << 1);
   sample.estimator_us = comms.estimator_time_us();
   sample.rx_dropped = comms.dropped_rx();
   sample.rssi_dropped = comms.dropped_rssi();
   sample.connected = 0x80 | (connected == ConnectionState::Ready) |
-      (uint8_t(connected.load()) << 1) | (throttle_packet->connected ? 0x10 : 0) |
-      (throttle_packet->swa ? 0x20 : 0) | (throttle_packet->swb ? 0x40 : 0);
+                     (uint8_t(connected.load()) << 1) |
+                     (throttle_packet->connected ? 0x10 : 0) |
+                     (throttle_packet->swa ? 0x20 : 0) |
+                     (throttle_packet->swb ? 0x40 : 0);
   sample.motor_gap_us = motor_max_gap_us.exchange(0);
   comms.get_recorder().add_state(sample);
 
@@ -213,24 +191,7 @@ void Robot::general_update() {
     melt_input->manual_drive_type = DriveType::Melting;
     melt_input->auto_drive_type = true;
 
-    // Serial.printf("avg z: %.3f\n", get_average_z_accel());
-    // melt_input->is_upright = get_average_z_accel() >= 0;
-    // bool curr_upright = get_average_z_accel() >= -1.0;
-    bool curr_upright = true;
-
-    if (curr_upright != last_upright) {
-      different_upright_time_msec += 10;
-      if (different_upright_time_msec > upright_time_threshold) {
-        last_upright = curr_upright;
-        different_upright_time_msec = 0;
-      }
-    } else {
-      different_upright_time_msec = 0;
-    }
-
-    melt_input->is_upright = last_upright;
-    // melt_input->is_upright = true;
-
+    melt_input->is_upright = true;
     melt.general_update();
   } else {
     if (connected == ConnectionState::NetworkDisconnect) {
@@ -248,7 +209,8 @@ void Robot::general_update() {
     //   // Serial.printf("l_lr=%d,l_ud=%d,r_lr=%d,r_ud=%d,kl=%d,kr=%d,c=%d\n",
     //   //               throttle_packet->left_lr, throttle_packet->left_ud,
     //   //               throttle_packet->right_lr, throttle_packet->right_ud,
-    //   //               throttle_packet->knob_left, throttle_packet->knob_right,
+    //   //               throttle_packet->knob_left,
+    //   throttle_packet->knob_right,
     //   //               throttle_packet->connected);
     //   // Serial.printf("x:%.3f,y:%.3f,z:%.3f,rpm:%.1f,fast_rpm:%.1f,"
     //   //               "long_rpm:%.1f,throttle:%.3f,rssi_hz:%.0f\n",
@@ -274,8 +236,8 @@ void Robot::general_update() {
   comms.send(&telemetry_packet);
   // A neutral controller is idle even with SWA enabled. Check both current
   // drive intent (including tank movement) and the motor task's zero ACK.
-  const bool no_drive_command = connected != ConnectionState::Ready ||
-                                !melt.has_motor_command();
+  const bool no_drive_command =
+      connected != ConnectionState::Ready || !melt.has_motor_command();
   storage_gate.request(!arming && no_drive_command &&
                        comms.get_recorder().filesystem_pending());
   comms.update_recorder(!arming && no_drive_command && !motor_active.load() &&
@@ -292,7 +254,8 @@ void Robot::motor_update() {
     const uint32_t gap = now_us - previous_us;
     uint32_t maximum = motor_max_gap_us.load();
     while (gap > maximum &&
-           !motor_max_gap_us.compare_exchange_weak(maximum, gap)) {}
+           !motor_max_gap_us.compare_exchange_weak(maximum, gap)) {
+    }
   }
   previous_us = now_us;
   const uint32_t storage_token = storage_gate.token();
@@ -302,7 +265,8 @@ void Robot::motor_update() {
       right_motor.send(0);
       motor_active.store(false);
       // Finish all queued peripheral transactions before flash can disable
-      // caches/interrupts. No RMT calls follow the ACK until parking is revoked.
+      // caches/interrupts. No RMT calls follow the ACK until parking is
+      // revoked.
       if (left_motor.wait_tx_idle(20) && right_motor.wait_tx_idle(20) &&
           leds.wait_idle(20))
         storage_gate.acknowledge(storage_token);
@@ -329,17 +293,9 @@ void Robot::motor_update() {
       motor_active.store(false);
     } else {
       motor_active.store(true);
-      // left_motor.sendThrottle(output->left_power);
-      // right_motor.sendThrottle(output->right_power);
       left_motor.sendThrottle3D(-output->left_power * 100.f);
-      right_motor.sendThrottle3D(-output->right_power * 100.f);
+      right_motor.sendThrottle3D(output->right_power * 100.f);
     }
-    //
-    // left_motor.sendThrottle3D(output->left_power);
-    // right_motor.sendThrottle3D(output->right_power);
-
-    // left_motor.sendThrottle(output->left_power);
-    // right_motor.sendThrottle(output->right_power);
   } else {
     // stop the motors unless strictly good for spinning
     left_motor.send(0);
