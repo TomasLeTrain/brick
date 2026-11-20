@@ -2,6 +2,7 @@
 
 #include "../../config.h"
 #include "heading_clock.h"
+#include "led_display.h"
 #include "pid.h"
 #include <cstdint>
 
@@ -141,6 +142,8 @@ private:
   MeltConfig config;
 
   PID throtte_pid;
+
+  LedDisplay led_display;
 
   // below are values calculated by generated update
   HeadingClock heading;

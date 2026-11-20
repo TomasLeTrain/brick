@@ -77,8 +77,6 @@ void Robot::general_update() {
   // less often
   // accel.update_reading();
   int32_t accel_measurement_micros = micros();
-  // accel_disconnected = accel.has_connection_error();
-  accel_disconnected = true;
 
   float x = 0;
   float y = 0;
@@ -86,9 +84,6 @@ void Robot::general_update() {
   uint16_t raw_x = 0;
   uint16_t raw_y = 0;
   uint16_t raw_z = 0;
-
-  // update z accel buffer
-  update_z_buffer(z);
 
   ThrottlePacket *throttle_packet = comms.get_throttle_packet();
 
@@ -98,8 +93,6 @@ void Robot::general_update() {
     connected = ConnectionState::NetworkDisconnect;
   } else if (!throttle_packet->connected) {
     connected = ConnectionState::ControllerDisconnect;
-    // } else if (accel_disconnected) {
-    //   connected = ConnectionState::AccelDisconnect;
   } else if (!throttle_packet->swa) {
     connected = ConnectionState::SpinSwitchOff;
   } else {
@@ -310,8 +303,6 @@ void Robot::motor_update() {
         leds.leds_on_no_controller();
       else if (connected == ConnectionState::ControllerDisconnect)
         leds.leds_on_controller_stale();
-      else if (connected == ConnectionState::AccelDisconnect)
-        leds.leds_on_rgb(0, 255, 0);
       else if (connected == ConnectionState::SpinSwitchOff)
         leds.leds_on_switch_off();
     }
@@ -319,24 +310,4 @@ void Robot::motor_update() {
 
   // perform every msec
   vTaskDelay(1);
-}
-
-void Robot::update_z_buffer(float z_accel) {
-  z_accel_queue[z_accel_position] = z_accel;
-
-  constexpr size_t num_elements =
-      sizeof(z_accel_queue) / sizeof(z_accel_queue[0]);
-  z_accel_position = (z_accel_position + 1) % num_elements;
-}
-
-float Robot::get_average_z_accel() {
-  float avg = 0;
-  constexpr size_t num_elements =
-      sizeof(z_accel_queue) / sizeof(z_accel_queue[0]);
-
-  for (size_t i = 0; i < num_elements; i++) {
-    avg += z_accel_queue[i];
-  }
-
-  return avg / num_elements;
 }

@@ -1,7 +1,9 @@
 #include "led_display.h"
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
+// NOTE: assumes 8 bar leds
 uint8_t mask_0[4] = {0b00011111, 0b00010001, 0b00011111, 0b00000000};
 uint8_t mask_1[4] = {0b00000000, 0b00000000, 0b00011111, 0b00000000};
 uint8_t mask_2[4] = {0b00010111, 0b00010101, 0b00011101, 0b00000000};
@@ -18,37 +20,23 @@ uint8_t *digit_masks[10] = {
     mask_5, mask_6, mask_7, mask_8, mask_9,
 };
 
-uint8_t general_mask[16];
-
 void LedDisplay::general_update() {
-  // TODO: width to determine left/right bounds
-  // TODO: have characters to display
-  //
   // num ix 3 pixels wide, 5 tall
   // space is 1 pixel wide
   // so must divide width into 3 * 4 + 3 = 15 pixels
   // can simplify by having each character have the space builtin, divide into
   // 16 pixels and index pixel at given character
-
-  uint8_t desired_nums[4] = {1, 2, 3, 4};
-
   // update mask
   for (int i = 0; i < 4; i++) {
-    memcpy(&general_mask[i * 4], digit_masks[desired_nums[i]], 4);
+    memcpy(&led_mask[i * 4], digit_masks[desired_nums[i]], 4);
   }
 }
 
-void LedDisplay::fast_update(uint8_t led_red[NUM_LEDS],
+void LedDisplay::fast_update(float pct, uint8_t led_red[NUM_LEDS],
                              uint8_t led_green[NUM_LEDS],
                              uint8_t led_blue[NUM_LEDS]) {
-  // TODO: calculate
-  float pct_in_range = 0.5;
-  // prevents out of bounds if exactly 1.0
-  pct_in_range = fminf(pct_in_range, 0.99f);
-
-  int pixel = int(pct_in_range * 16);
-
-  uint8_t curr_mask = general_mask[pixel];
+  int32_t pixel = std::min(int(16 * pct), 15);
+  uint8_t curr_mask = led_mask[pixel];
 
   uint8_t red = 0;
   uint8_t green = 0;

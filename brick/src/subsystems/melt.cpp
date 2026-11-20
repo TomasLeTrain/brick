@@ -119,6 +119,18 @@ void Melt::general_update() {
 
     led_vector_magnitude = melt_linear_mag;
 
+    uint8_t *desired_led_nums = led_display.desiredNums();
+
+    // update digits with rpm
+    int int_rpm = input.rpm;
+    desired_led_nums[0] = (int_rpm / 1000) % 10;
+    desired_led_nums[1] = (int_rpm / 100) % 10;
+    desired_led_nums[2] = (int_rpm / 10) % 10;
+    desired_led_nums[3] = int_rpm % 10;
+
+    // after updating digits do general update
+    led_display.general_update();
+
   } else if (active_drive_type == DriveType::Tank) {
     // deadzones
     float linear = input.vx;
@@ -282,12 +294,27 @@ void Melt::led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],
     int num_vector_leds_on = led_vector_magnitude * 8;
     color_first_n(255, 255, 0, red, green, blue, num_vector_leds_on);
   } else if (heading_led_on) {
-    // done for testing
-    if (input.is_upright) {
-      fill_color(0, 0, 255, red, green, blue);
-    } else {
-      fill_color(255, 0, 0, red, green, blue);
+    // need to calculuate pct in current range
+    int32_t curr_led_heading_start_us = led_heading_start_us;
+    int32_t curr_led_heading_end_us = curr_led_heading_end_us;
+    int32_t curr_rotation_pct_us = rotation_pct_us;
+
+    // make sure [start,end] range is continuous
+    if (curr_led_heading_start_us > curr_led_heading_end_us) {
+      curr_led_heading_end_us += rotation_time_micros;
+      if (curr_rotation_pct_us >= 0)
+        curr_rotation_pct_us += rotation_time_micros;
     }
+
+    float width_us = curr_led_heading_end_us - curr_led_heading_start_us;
+    float pct = (curr_rotation_pct_us - curr_led_heading_start_us) / width_us;
+    led_display.fast_update(pct, red, green, blue);
+    // done for testing
+    // if (input.is_upright) {
+    //   fill_color(0, 0, 255, red, green, blue);
+    // } else {
+    //   fill_color(255, 0, 0, red, green, blue);
+    // }
   } else {
     fill_color(0, 0, 0, red, green, blue);
   }

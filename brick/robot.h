@@ -12,7 +12,6 @@ enum ConnectionState {
   NetworkDisconnect,
   ControllerDisconnect,
   SpinSwitchOff,
-  AccelDisconnect,
   Ready
 };
 
@@ -28,10 +27,6 @@ public:
   void arming_sequence();
 
 private:
-  // TODO: move to separate class?
-  void update_z_buffer(float z_accel);
-  float get_average_z_accel();
-
   AlfredoDShot left_motor;
   AlfredoDShot right_motor;
 
