@@ -5,7 +5,8 @@
 #include <algorithm>
 
 // CSV output is drained without blocking the radio/IBus loop. ACKs follow the
-// completed row, so retransmitted records cannot duplicate partially printed CSV.
+// completed row, so retransmitted records cannot duplicate partially printed
+// CSV.
 class DumpReceiver {
 public:
   bool receive(const uint8_t *data, size_t length) {
@@ -35,11 +36,13 @@ public:
         next = 0;
         checksum = UINT32_MAX;
         expected = header;
-        queue("# dump_begin generation=%lu count=%lu overwritten=%lu paused=%lu\n%s",
+        queue("# dump_begin generation=%lu count=%lu overwritten=%lu "
+              "paused=%lu\n%s",
               static_cast<unsigned long>(header.generation),
               static_cast<unsigned long>(header.count),
               static_cast<unsigned long>(header.overwritten),
-              static_cast<unsigned long>(header.paused_samples), RunDump::csv_header);
+              static_cast<unsigned long>(header.paused_samples),
+              RunDump::csv_header);
       }
       acknowledge(RunDump::begin_index);
     } else if (have_session && session == incoming_session) {
@@ -49,8 +52,9 @@ public:
           RunDump::Record record;
           RunDump::decode_record(data + RunDump::prefix_size, expected, record);
           checksum = RunDump::crc32(checksum, data + RunDump::prefix_size,
-                                   expected.record_size);
-          output_size = RunDump::csv_record(output, sizeof(output), record, expected.format_version);
+                                    expected.record_size);
+          output_size = RunDump::csv_record(output, sizeof(output), record,
+                                            expected.format_version);
           output_position = 0;
           ++next;
         }
@@ -73,10 +77,11 @@ public:
     return true;
   }
 
-  void update(NowPair &link) {
-    const size_t bytes = std::min(output_size - output_position,
-        size_t(std::max(0, Serial.availableForWrite())));
-    if (bytes)
+  void update(NowPair &link, bool allow_serial = true) {
+    const size_t bytes =
+        std::min(output_size - output_position,
+                 size_t(std::max(0, Serial.availableForWrite())));
+    if (bytes && allow_serial)
       output_position += Serial.write(
           reinterpret_cast<const uint8_t *>(output + output_position), bytes);
     if (active && (!link.connected() || millis() - last_received_ms > 3000)) {

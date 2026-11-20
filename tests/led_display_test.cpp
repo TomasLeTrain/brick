@@ -11,7 +11,7 @@ static void expect_blue_mask(const uint8_t *red, const uint8_t *green,
                              const uint8_t *blue, uint8_t mask) {
   for (int i = 0; i < NUM_LEDS; ++i) {
     assert(red[i] == 0 && green[i] == 0);
-    assert(blue[i] == (((mask >> i) & 1) ? 255 : 0));
+    assert(blue[NUM_LEDS - i - 1] == (((mask >> i) & 1) ? 255 : 0));
   }
 }
 

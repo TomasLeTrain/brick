@@ -209,7 +209,9 @@ void Melt::fast_update_melt(float current_theta) {
   // NOTE: assumes cannot go below zero meaning on the other direction
   // scales to controller magnitude, independent of max power
   float max_linear_power =
-      std::min(config.max_translation_power, base_spin_power) * melt_linear_mag;
+      (melting ? std::min(config.max_translation_power, base_spin_power) *
+                     melt_linear_mag
+               : 0);
 
   if (config.translation_method == TranslationMethod::Square) {
     // only move when difference inside move_threshold

@@ -2,7 +2,7 @@
 #include "config.h"
 #include "src/subsystems/led.h"
 #include "src/subsystems/melt.h"
-#include <Wire.h>
+#include <cstring>
 #include <esp_system.h>
 
 Robot::Robot() {}
@@ -39,6 +39,7 @@ void Robot::begin() {
   // TODO: check for any begin errors and report with leds
   // leds.set_brightness(30);
   leds.set_brightness(30);
+  bottom_leds.set_brightness(30);
 
   left_motor.begin(LEFT_MOTOR_PIN, DSHOT600, false, 14);
   right_motor.begin(RIGHT_MOTOR_PIN, DSHOT600, false, 14);
@@ -74,23 +75,9 @@ bool last_switch_position = false;
 
 void Robot::general_update() {
   comms.update();
-  // TODO: can read from accel at faster rate, can also only read x/y and read z
-  // less often
-  // accel.update_reading();
-  int32_t accel_measurement_micros = micros();
-
-  float x = 0;
-  float y = 0;
-  float z = 0;
-  uint16_t raw_x = 0;
-  uint16_t raw_y = 0;
-  uint16_t raw_z = 0;
-
   ThrottlePacket *throttle_packet = comms.get_throttle_packet();
 
   if (!comms.connected()) {
-    if (!comms.get_recorder().printing())
-      Serial.println("network dc");
     connected = ConnectionState::NetworkDisconnect;
   } else if (!throttle_packet->connected) {
     connected = ConnectionState::ControllerDisconnect;
@@ -185,47 +172,49 @@ void Robot::general_update() {
     melt_input->manual_drive_type = DriveType::Melting;
     melt_input->auto_drive_type = true;
 
-    melt_input->is_upright = true;
+    melt_input->is_upright = !throttle_packet->inverted;
     melt.general_update();
-  } else {
-    if (connected == ConnectionState::NetworkDisconnect) {
-      if (!comms.get_recorder().printing())
-        Serial.println("no controller thingy");
-    }
   }
 
-  static uint32_t lastMessage = 0;
-  int printing_time = 20;
-
-  if (comms.connected()) {
-    // if (!comms.get_recorder().printing() &&
-    //     uint32_t(millis() - lastMessage) >= printing_time) {
-    //   // Serial.printf("l_lr=%d,l_ud=%d,r_lr=%d,r_ud=%d,kl=%d,kr=%d,c=%d\n",
-    //   //               throttle_packet->left_lr, throttle_packet->left_ud,
-    //   //               throttle_packet->right_lr, throttle_packet->right_ud,
-    //   //               throttle_packet->knob_left,
-    //   throttle_packet->knob_right,
-    //   //               throttle_packet->connected);
-    //   // Serial.printf("x:%.3f,y:%.3f,z:%.3f,rpm:%.1f,fast_rpm:%.1f,"
-    //   //               "long_rpm:%.1f,throttle:%.3f,rssi_hz:%.0f\n",
-    //   //               x, y, z, curr_rpm, diagnostic.fast_rpm,
-    //   //               diagnostic.long_rpm, spin_throttle,
-    //   //               rssi_estimator.sample_rate_hz());
-    //   lastMessage = millis();
-    // }
-  } else {
-    if (!comms.get_recorder().printing())
-      Serial.println("disconnected");
+  // Diagnostics must not block the control loop when USB isn't being drained.
+  static ConnectionState previous_state = ConnectionState::NetworkDisconnect;
+  const ConnectionState state = connected.load();
+  if (state != previous_state) {
+    previous_state = state;
+    const char *messages[] = {"# network disconnected\n",
+                              "# controller disconnected\n",
+                              "# spin disabled\n", "", "# ready\n"};
+    const char *message = messages[int(state)];
+    const size_t length = std::strlen(message);
+    if (!comms.get_recorder().printing() &&
+        Serial.availableForWrite() >= int(length))
+      Serial.write(reinterpret_cast<const uint8_t *>(message), length);
   }
 
-  // now send telemetry
-  TelemetryPacket telemetry_packet;
-  telemetry_packet.a_x = raw_x;
-  telemetry_packet.a_y = raw_y;
-  telemetry_packet.a_z = raw_z;
+  // Versioned telemetry contains only live control/RPM/link diagnostics.
+  TelemetryPacket telemetry_packet{};
+  telemetry_packet.micros_timestamp = micros();
   telemetry_packet.rpm = curr_rpm;
-  telemetry_packet.radius = 0; // Reserved legacy telemetry slot.
-  telemetry_packet.micros_timestamp = accel_measurement_micros;
+  telemetry_packet.target_rpm = steady_rpm;
+  telemetry_packet.throttle = spin_throttle;
+  telemetry_packet.rssi_hz = rssi_estimator.sample_rate_hz();
+  telemetry_packet.correlation = diagnostic.correlation;
+  telemetry_packet.heading_rad = heading.heading_rad;
+  telemetry_packet.heading_error_rad = heading.error_rad;
+  telemetry_packet.rpm_age_ms = heading.measurement_age_ms;
+  telemetry_packet.rx_dropped = comms.dropped_rx();
+  telemetry_packet.rssi_dropped = comms.dropped_rssi();
+  telemetry_packet.tx_failures = comms.tx_failures();
+  telemetry_packet.connection_state = connected.load();
+  telemetry_packet.rpm_status = uint8_t(diagnostic.status);
+  telemetry_packet.heading_status = uint8_t(heading.status);
+  telemetry_packet.inverted = throttle_packet->inverted;
+  telemetry_packet.companion_active = throttle_packet->companion_active;
+  telemetry_packet.controller_connected = throttle_packet->connected;
+  telemetry_packet.spin_enabled = throttle_packet->swa;
+  telemetry_packet.rssi_dbm = comms.last_rssi_dbm();
+  telemetry_packet.control_age_ms = comms.control_age_ms();
+  telemetry_packet.control_sequence = throttle_packet->sequence;
 
   comms.send(&telemetry_packet);
   // A neutral controller is idle even with SWA enabled. Check both current
@@ -258,27 +247,37 @@ void Robot::motor_update() {
       left_motor.send(0);
       right_motor.send(0);
       leds.set_brightness(30);
+      bottom_leds.set_brightness(30);
       motor_active.store(false);
       // Finish all queued peripheral transactions before flash can disable
       // caches/interrupts. No RMT calls follow the ACK until parking is
       // revoked.
       if (left_motor.wait_tx_idle(20) && right_motor.wait_tx_idle(20) &&
-          leds.wait_idle(20))
+          leds.wait_idle(20) && bottom_leds.wait_idle(20))
         storage_gate.acknowledge(storage_token);
     }
     vTaskDelay(1);
     return;
   }
   if (arming) {
-    if (!comms.get_recorder().printing())
-      Serial.println("arming");
+    // One startup message is sufficient; never print at the 1 kHz motor rate.
+    static bool announced = false;
+    if (!announced && Serial.availableForWrite() >= 9) {
+      const uint8_t message[] = "# arming\n";
+      Serial.write(message, sizeof(message) - 1);
+      announced = true;
+    }
     motor_active.store(true);
     left_motor.send(command);
     right_motor.send(command);
-  } else if (connected == ConnectionState::Ready) {
+  } else if (connected == ConnectionState::Ready &&
+             comms.motor_control_fresh()) {
     melt.fast_update();
     const MeltOutput *output = melt.get_output();
     leds.leds_on_array(output->led_red, output->led_green, output->led_blue);
+    // Top heading = blue, bottom = red; vector yellow/cyan respectively.
+    bottom_leds.leds_on_array(output->led_red, output->led_green,
+                              output->led_blue, true);
 
     // if power low enough just break
     if (fabs(output->left_power) < 0.0001 &&
@@ -286,20 +285,21 @@ void Robot::motor_update() {
       left_motor.send(0);
       right_motor.send(0);
       leds.set_brightness(30);
+      bottom_leds.set_brightness(30);
       motor_active.store(false);
     } else {
-      // motor_active.store(true);
-      // left_motor.sendThrottle3D(-output->left_power * 100.f);
-      // right_motor.sendThrottle3D(output->right_power * 100.f);
+      motor_active.store(true);
       left_motor.sendThrottle3D(-output->left_power * 100.f);
       right_motor.sendThrottle3D(output->right_power * 100.f);
       leds.set_brightness(150);
+      bottom_leds.set_brightness(150);
     }
   } else {
     // stop the motors unless strictly good for spinning
     left_motor.send(0);
     right_motor.send(0);
     leds.set_brightness(30);
+    bottom_leds.set_brightness(30);
     motor_active.store(false);
     // Keep every runtime LED/RMT call on this task, including switch-off and
     // disconnect indications. The general task must not submit after park ACK.
@@ -308,10 +308,18 @@ void Robot::motor_update() {
       last_status_led_us = now_us;
       if (connected == ConnectionState::NetworkDisconnect)
         leds.leds_on_no_controller();
-      else if (connected == ConnectionState::ControllerDisconnect)
+      else if (connected == ConnectionState::ControllerDisconnect ||
+               connected == ConnectionState::Ready)
         leds.leds_on_controller_stale();
       else if (connected == ConnectionState::SpinSwitchOff)
         leds.leds_on_switch_off();
+      if (connected == ConnectionState::NetworkDisconnect)
+        bottom_leds.leds_on_no_controller();
+      else if (connected == ConnectionState::ControllerDisconnect ||
+               connected == ConnectionState::Ready)
+        bottom_leds.leds_on_controller_stale();
+      else if (connected == ConnectionState::SpinSwitchOff)
+        bottom_leds.leds_on_switch_off();
     }
   }
 

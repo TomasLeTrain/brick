@@ -1,45 +1,36 @@
-#include "NowPair.h"
-#include "IBusBM.h"
-#include "DumpReceiver.h"
-#include "../common/packets.h"
 #include "../common/dump_command.h"
+#include "../common/packets.h"
+#include "../common/radio_config.h"
+#include "DumpReceiver.h"
+#include "IBusBM.h"
+#include "NowPair.h"
+#include "SenderConsole.h"
+#include <esp_system.h>
 
 #define HEARTBEAT_MS 50
 #define TIMEOUT_MS 250
 
-NowPair peer_link(NowPair::Role::Master, 6, HEARTBEAT_MS, TIMEOUT_MS);
+NowPair peer_link(NowPair::Role::Master, RADIO_CHANNEL, HEARTBEAT_MS,
+                  TIMEOUT_MS);
 
 IBusBM IBus;
 DumpReceiver dump_receiver;
-DumpCommand serial_command;
+SenderConsole console;
+uint32_t control_session = 0, control_sequence = 0;
 bool swd = true;
 
-void connectionChanged(bool connected, void *arg) {
-  Serial.println(connected ? "Slave connected" : "Slave disconnected");
+void connectionChanged(bool connected, void *) {
+  console.status(connected ? "Slave connected" : "Slave disconnected");
 }
 
-bool print_next_packet = false;
-float curr_throttle = 0;
-
-void received(const uint8_t *data, size_t length, int rssiDbm, uint32_t rssiTimestamp, void *arg) {
+void received(const uint8_t *data, size_t length, int, uint32_t, void *) {
   if (dump_receiver.receive(data, length))
     return;
   TelemetryPacket packet;
-  bool res = packet.deserialize(data, length);
-  if (res) {
-    if(print_next_packet && !dump_receiver.receiving() && !dump_receiver.printing()){
-      Serial.printf("x:%1.3f,y:%.3f,z:%.3f,rpm:%.3f,throttle:%.3f\n", TelemetryPacket::convertToG(packet.a_x), TelemetryPacket::convertToG(packet.a_y), TelemetryPacket::convertToG(packet.a_z), packet.rpm,curr_throttle);
-      print_next_packet = false;
-    }
-    
-    // Serial.printf("x:%d,y:%d,z:%d\n", packet.a_x, packet.a_y, packet.a_z);
+  if (packet.deserialize(data, length)) {
+    console.receive(packet);
     digitalWrite(LED_BUILTIN, LOW);
-  } else {
-    Serial.println("bad packet!");
   }
-  // Serial.print("Slave says: ");
-  // Serial.write(data, length); // Payload is not necessarily null-terminated.
-  // Serial.println();
 }
 
 void setup() {
@@ -50,23 +41,31 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH);
 
-  // needed before any networking or else there is a slight disconnect at beginning
+  // needed before any networking or else there is a slight disconnect at
+  // beginning
   delay(1000);
 
+  control_session = esp_random();
+  if (!control_session)
+    control_session = 1;
+  peer_link.expectPeer(ROBOT_MAC);
+  peer_link.wakeOnSend(xTaskGetCurrentTaskHandle());
   peer_link.onConnectionChange(connectionChanged, NULL);
   peer_link.onData(received, NULL);
   // Shorten unicast airtime so a frame can usually complete within one tick.
   // Discovery broadcasts continue at the default rate.
-  const esp_now_rate_config_t tx_rate = {
-      WIFI_PHY_MODE_11G, WIFI_PHY_RATE_6M, false, false};
+  const esp_now_rate_config_t tx_rate = {WIFI_PHY_MODE_11G, WIFI_PHY_RATE_6M,
+                                         false, false};
   peer_link.setRate(&tx_rate);
   peer_link.setRssiStreaming(true);
   if (!peer_link.begin()) {
     Serial.println("ESP-NOW initialization failed");
-    while (true) delay(1000);
+    while (true)
+      delay(1000);
   }
   Serial.println("Broadcasting discovery; waiting for slave...");
-  Serial.println("# commands s/p/e/f/x; heading a=accel-only t=translation-on n=off; press Enter");
+  Serial.println("# commands s/p/e/f/x; heading a=accel-only t=translation-on "
+                 "n=off; press Enter");
 }
 
 uint32_t last_cnt_rec_update = 0;
@@ -75,23 +74,40 @@ uint8_t last_cnt_rec = 0;
 void loop() {
   IBus.loop();
   sendThrottle();
-  if (Serial.available()) {
-    const char command = serial_command.feed(Serial.read());
-    if (command) {
+  for (unsigned budget = 0; budget < 128 && Serial.available(); ++budget) {
+    const char *line = console.readLine(Serial.read());
+    if (!line)
+      continue;
+    if (line[0] == '@') {
+      if (!console.companion.receive(line, millis()))
+        console.status("invalid/stale companion frame");
+    } else if (line[1] == '\0' && std::strchr("spefxatn", line[0])) {
+      const char command = line[0];
       if (command == 'x')
         dump_receiver.cancel();
       uint8_t request[RunDump::prefix_size + 1];
       RunDump::prefix(request, RunDump::Message::Command, 0, 0);
       request[RunDump::prefix_size] = command;
       if (!peer_link.sendData(request, sizeof(request)))
-        Serial.println("# dump command queue full or disconnected; retry");
+        console.status("command queue full/disconnected; retry");
     }
   }
-  dump_receiver.update(peer_link);
-  // One ESP-NOW frame can start per tick. Empty RSSI frames fill the slots
-  // between throttle packets and heartbeat traffic.
   peer_link.update();
-  vTaskDelay(1);
+  // Finish any console line before allowing CSV bytes onto the same stream.
+  const bool console_busy = console.printing();
+  dump_receiver.update(peer_link, !console_busy);
+  console.update(peer_link,
+                 dump_receiver.receiving() || dump_receiver.printing());
+
+  // Send completion wakes this task promptly; avoid losing every other tick.
+  // Still give the idle task time at least every 10 ms under continuous
+  // traffic.
+  static uint32_t last_yield_ms = 0;
+  if (millis() - last_yield_ms >= 10) {
+    last_yield_ms = millis();
+    vTaskDelay(1);
+  } else
+    ulTaskNotifyTake(pdTRUE, 1);
 }
 
 void sendThrottle() {
@@ -102,7 +118,9 @@ void sendThrottle() {
     return;
 
   digitalWrite(LED_BUILTIN, HIGH);
-  ThrottlePacket packet;
+  ThrottlePacket packet{};
+  packet.session = control_session;
+  packet.sequence = ++control_sequence;
 
   // 0 - right, left-right
   // 1 - right, up-down
@@ -110,14 +128,14 @@ void sendThrottle() {
   // 3 - left, up-down
   // 4 - vra
   // 5 - vrb
-  packet.right_lr = IBus.readChannel(0) - 1000;
-  packet.right_ud = IBus.readChannel(1) - 1000;
+  packet.right_lr = std::clamp(int(IBus.readChannel(0)) - 1000, 0, 1000);
+  packet.right_ud = std::clamp(int(IBus.readChannel(1)) - 1000, 0, 1000);
 
-  packet.left_lr = IBus.readChannel(3) - 1000;
-  packet.left_ud = IBus.readChannel(2) - 1000;
+  packet.left_lr = std::clamp(int(IBus.readChannel(3)) - 1000, 0, 1000);
+  packet.left_ud = std::clamp(int(IBus.readChannel(2)) - 1000, 0, 1000);
 
-  packet.knob_left = IBus.readChannel(4) - 1000;
-  packet.knob_right = IBus.readChannel(5) - 1000;
+  packet.knob_left = std::clamp(int(IBus.readChannel(4)) - 1000, 0, 1000);
+  packet.knob_right = std::clamp(int(IBus.readChannel(5)) - 1000, 0, 1000);
 
   // Serial.printf("swa:%d,swb:%d,swc:%d,swd:%d\n",IBus.readChannel(6),IBus.readChannel(7),IBus.readChannel(8),IBus.readChannel(9));
 
@@ -132,7 +150,8 @@ void sendThrottle() {
   // assume connected, updated later
   packet.connected = true;
 
-  // TODO: on controller dc, sometimes toggles between frozen values / failsafe values for a couple secs, then goes back to normal
+  // TODO: on controller dc, sometimes toggles between frozen values / failsafe
+  // values for a couple secs, then goes back to normal
 
   // two failsafe methods:
   // - check if no signal (through cnt_rec)
@@ -148,12 +167,18 @@ void sendThrottle() {
   uint16_t fail_kr = 794;
 
   int fail_cnt = 0;
-  if (fail_l_lr == packet.left_lr) fail_cnt++;
-  if (fail_l_ud == packet.left_ud) fail_cnt++;
-  if (fail_r_lr == packet.right_lr) fail_cnt++;
-  if (fail_r_ud == packet.right_ud) fail_cnt++;
-  if (fail_kl == packet.knob_left) fail_cnt++;
-  if (fail_kr == packet.knob_right) fail_cnt++;
+  if (fail_l_lr == packet.left_lr)
+    fail_cnt++;
+  if (fail_l_ud == packet.left_ud)
+    fail_cnt++;
+  if (fail_r_lr == packet.right_lr)
+    fail_cnt++;
+  if (fail_r_ud == packet.right_ud)
+    fail_cnt++;
+  if (fail_kl == packet.knob_left)
+    fail_cnt++;
+  if (fail_kr == packet.knob_right)
+    fail_cnt++;
 
   if (fail_cnt >= 5) {
     // more than likely a disconnect, indicate such
@@ -170,19 +195,10 @@ void sendThrottle() {
     packet.connected = false;
   }
 
-  static bool last_swd_state = true;
-
-  if(packet.connected){
-    // from high to low, print next packet
-    if(last_swd_state && !swd){
-      print_next_packet = true;
-    }
-    last_swd_state = swd;
-    curr_throttle = packet.left_ud;
-  }
+  console.companion.apply(packet, millis());
 
   uint8_t data_buffer[NowPair::MAX_PAYLOAD];
   const size_t length = packet.serialize(data_buffer);
-  if (peer_link.sendData(data_buffer, length))
+  if (peer_link.sendLatestData(data_buffer, length))
     last_send_ms = now_ms;
 }

@@ -2,7 +2,6 @@
 
 #include "config.h"
 #include "src/lib/AlfredoDShot.h"
-#include "src/subsystems/accelerometer.h"
 #include "src/subsystems/comms.h"
 #include "src/subsystems/led.h"
 #include "src/subsystems/melt.h"
@@ -31,9 +30,8 @@ private:
   AlfredoDShot left_motor;
   AlfredoDShot right_motor;
 
-  Accelerometer accel;
-
   LED leds;
+  LED bottom_leds{BOTTOM_NEOPIXEL_PIN};
   Comms comms;
 
   Melt melt;

@@ -13,7 +13,9 @@ struct HostQueue {
 inline QueueHandle_t xQueueCreate(size_t capacity, size_t item_size) {
   return new HostQueue{capacity, item_size, {}};
 }
-inline void vQueueDelete(QueueHandle_t queue) { delete static_cast<HostQueue *>(queue); }
+inline void vQueueDelete(QueueHandle_t queue) {
+  delete static_cast<HostQueue *>(queue);
+}
 inline BaseType_t xQueueSend(QueueHandle_t queue, const void *data, unsigned) {
   auto &q = *static_cast<HostQueue *>(queue);
   if (q.items.size() == q.capacity)
@@ -35,4 +37,8 @@ inline UBaseType_t uxQueueMessagesWaiting(QueueHandle_t queue) {
 }
 inline void xQueueReset(QueueHandle_t queue) {
   static_cast<HostQueue *>(queue)->items.clear();
+}
+inline BaseType_t xQueueOverwrite(QueueHandle_t queue, const void *data) {
+  xQueueReset(queue);
+  return xQueueSend(queue, data, 0);
 }

@@ -1,5 +1,26 @@
 # Brick
 
+## Companion controller and local dashboard
+
+Flash both ESPs from this revision, then run:
+
+```sh
+python3 -m http.server 8000 --bind 127.0.0.1 --directory tools/console
+```
+
+Open <http://localhost:8000> in desktop Chrome/Chromium or Edge, connect the
+sender by USB, and select a Joy-Con/gamepad exposed by your OS. The second pilot
+can take over heading with a 150 ms timeout back to the main radio. The page also
+provides manual translation flip, live telemetry, log commands, CSV copy/download,
+and a run inspector with locally reconstructed correlation curves. Throttle,
+translation, and arming remain on the physical radio.
+
+Top/bottom LED data now use GPIO 1/4 with blue/red heading digits. Rewire the bottom
+data line separately, or change those pins in `brick/config.h`. Control/telemetry
+packets are versioned and require updating **both** ESPs; persisted dump format
+remains v5. See [setup, mappings, wiring, and RF notes](tools/console/README.md).
+
+
 ## RSSI RPM estimation and delay-compensated heading
 
 Flash the robot with `brick` and the controller ESP with `sender_test`. The
@@ -232,6 +253,24 @@ c++ -std=c++17 -O2 -Itests/host tests/now_pair_timing_test.cpp \
 /tmp/brick-timing-test
 c++ -std=c++17 -O2 tests/run_dump_phase_test.cpp -o /tmp/brick-phase-dump-test
 /tmp/brick-phase-dump-test
+c++ -std=c++17 -O2 tests/companion_packet_test.cpp -o /tmp/brick-companion-test
+/tmp/brick-companion-test
+c++ -std=c++17 -O2 -Itests/host tests/radio_resilience_test.cpp \
+    brick/src/lib/NowPair.cpp -o /tmp/brick-radio-test
+/tmp/brick-radio-test
+c++ -std=c++17 -O2 -Itests/host tests/dual_led_test.cpp \
+    brick/src/subsystems/led.cpp -o /tmp/brick-dual-led-test
+/tmp/brick-dual-led-test
+c++ -std=c++17 -O2 -Itests/host tests/sender_console_test.cpp \
+    brick/src/lib/NowPair.cpp -o /tmp/brick-sender-console-test
+/tmp/brick-sender-console-test
+c++ -std=c++17 -O2 -Itests/host -Ibrick tests/control_timeout_test.cpp \
+    brick/src/subsystems/comms.cpp brick/src/subsystems/run_recorder.cpp \
+    brick/src/subsystems/rssi_rpm_estimator.cpp brick/src/subsystems/rpm_heading_tracker.cpp \
+    brick/src/lib/NowPair.cpp -o /tmp/brick-control-timeout-test
+/tmp/brick-control-timeout-test
+node --test tests/console_test.mjs
+python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
 The communication regression compiles the real Comms, recorder and NowPair
