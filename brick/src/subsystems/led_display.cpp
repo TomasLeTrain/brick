@@ -26,15 +26,23 @@ void LedDisplay::fast_update(float pct, uint8_t led_red[NUM_LEDS],
                              uint8_t led_blue[NUM_LEDS]) {
   uint8_t mask = 0;
   if (std::isfinite(pct) && pct >= 0 && pct <= 1) {
-    const int pixel = std::min(int(16 * pct), 15);
+    int pixel = std::min(int(16 * pct), 15);
+    pixel = 15 - pixel;
+
     const uint32_t digits = published_digits.load(std::memory_order_relaxed);
     const uint8_t digit = (digits >> (4 * (pixel / 4))) & 15;
     if (digit < 10)
       mask = digit_masks[digit][pixel % 4];
   }
   for (int i = 0; i < NUM_LEDS; ++i) {
-    led_red[NUM_LEDS - i - 1] = 0;
-    led_green[NUM_LEDS - i - 1] = 0;
-    led_blue[NUM_LEDS - i - 1] = i < 8 && ((mask >> i) & 1) ? 255 : 0;
+    if (i < 8 && ((mask >> i) & 1)) {
+      led_red[NUM_LEDS - 1 - i] = 0;
+      led_green[NUM_LEDS - 1 - i] = 0;
+      led_blue[NUM_LEDS - 1 - i] = 255;
+    } else {
+      led_red[NUM_LEDS - 1 - i] = 255;
+      led_green[NUM_LEDS - 1 - i] = 255;
+      led_blue[NUM_LEDS - 1 - i] = 255;
+    }
   }
 }

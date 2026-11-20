@@ -89,16 +89,16 @@ void Melt::general_update() {
     const int32_t half_led_heading_width_us =
         (rotation_time_micros * config.heading_led_width) / 2;
 
-    // center around 0
-    // led_start_timestamp wraps around since subtracting
-    led_heading_start_us = 0 - half_led_heading_width_us;
-    led_heading_end_us = 0 + half_led_heading_width_us;
+    // for now, center at other side to test readability
+    float led_heading_offset_us = rotation_time_micros * 0.5f;
+    led_display_start_us = led_heading_offset_us - half_led_heading_width_us;
+    led_display_end_us = led_heading_offset_us + half_led_heading_width_us;
 
-    if (led_heading_start_us < 0) {
-      led_heading_start_us += rotation_time_micros;
+    if (led_display_start_us < 0) {
+      led_display_start_us += rotation_time_micros;
     }
-    if (led_heading_end_us > rotation_time_micros) {
-      led_heading_end_us -= rotation_time_micros;
+    if (led_display_end_us > rotation_time_micros) {
+      led_display_end_us -= rotation_time_micros;
     }
 
     float target_theta_pct = target_theta / (2.f * M_PI);
@@ -127,8 +127,8 @@ void Melt::general_update() {
         std::isfinite(input.rpm) ? int(std::clamp(input.rpm, 0.f, 9999.f)) : 0;
     desired_led_nums[0] = (int_rpm / 1000) % 10;
     desired_led_nums[1] = (int_rpm / 100) % 10;
-    desired_led_nums[2] = (int_rpm / 10) % 10;
-    desired_led_nums[3] = int_rpm % 10;
+    desired_led_nums[2] = 0;
+    desired_led_nums[3] = 0;
 
     // after updating digits do general update
     led_display.general_update();
@@ -272,17 +272,17 @@ void Melt::led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],
     rotation_pct_us += rotation_time_micros;
   }
 
-  bool heading_led_on = false;
+  bool display_led_on = false;
   bool movement_vec_led_on = false;
 
   // displays heading LED at correct location
-  if (led_heading_start_us > led_heading_end_us) {
+  if (led_display_start_us > led_display_end_us) {
     // range crosses 0, checking if in range must be done with or
-    heading_led_on = rotation_pct_us >= led_heading_start_us ||
-                     rotation_pct_us <= led_heading_end_us;
+    display_led_on = rotation_pct_us >= led_display_start_us ||
+                     rotation_pct_us <= led_display_end_us;
   } else {
-    heading_led_on = rotation_pct_us >= led_heading_start_us &&
-                     rotation_pct_us <= led_heading_end_us;
+    display_led_on = rotation_pct_us >= led_display_start_us &&
+                     rotation_pct_us <= led_display_end_us;
   }
 
   if (led_vector_start_us > led_vector_end_us) {
@@ -296,11 +296,12 @@ void Melt::led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],
 
   const int num_vector_leds_on = led_vector_magnitude * NUM_LEDS;
   if (movement_vec_led_on && num_vector_leds_on > 0) {
-    color_first_n(255, 255, 0, red, green, blue, num_vector_leds_on);
-  } else if (heading_led_on) {
+    // color_first_n(255, 255, 0, red, green, blue, num_vector_leds_on);
+    color_first_n(255, 0, 128, red, green, blue, num_vector_leds_on);
+  } else if (display_led_on) {
     // need to calculuate pct in current range
-    int32_t curr_led_heading_start_us = led_heading_start_us;
-    int32_t curr_led_heading_end_us = led_heading_end_us;
+    int32_t curr_led_heading_start_us = led_display_start_us;
+    int32_t curr_led_heading_end_us = led_display_end_us;
     int32_t curr_rotation_pct_us = rotation_pct_us;
 
     // make sure [start,end] range is continuous
@@ -312,7 +313,8 @@ void Melt::led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],
 
     float width_us = curr_led_heading_end_us - curr_led_heading_start_us;
     if (width_us <= 0) {
-      fill_color(0, 0, 0, red, green, blue);
+      // fill_color(0, 0, 0, red, green, blue);
+      fill_color(255, 255, 255, red, green, blue);
       return;
     }
     float pct = (curr_rotation_pct_us - curr_led_heading_start_us) / width_us;
@@ -324,6 +326,10 @@ void Melt::led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],
     //   fill_color(255, 0, 0, red, green, blue);
     // }
   } else {
-    fill_color(0, 0, 0, red, green, blue);
+    // fill_color(0, 0, 0, red, green, blue);
+    fill_color(255, 255, 255, red, green, blue);
   }
+
+  // no matter what, color the last one with rgb
+  // TODO: probably shouldn't cross heading one
 }
