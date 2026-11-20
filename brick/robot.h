@@ -9,10 +9,11 @@
 #include "src/subsystems/storage_gate.h"
 
 enum ConnectionState {
-  NetworkDisconnect,
-  ControllerDisconnect,
-  SpinSwitchOff,
-  Ready
+  NetworkDisconnect = 0,
+  ControllerDisconnect = 1,
+  SpinSwitchOff = 2,
+  // Value 3 was the removed accelerometer fault; preserve dump compatibility.
+  Ready = 4
 };
 
 class Robot {

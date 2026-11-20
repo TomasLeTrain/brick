@@ -191,8 +191,14 @@ c++ -std=c++17 -O2 -Itests/host -Ibrick tests/run_recorder_test.cpp \
     brick/src/subsystems/run_recorder.cpp -o /tmp/brick-recorder-test
 /tmp/brick-recorder-test
 c++ -std=c++17 -O2 -Itests/host tests/melt_idle_test.cpp \
-    brick/src/subsystems/melt.cpp brick/src/subsystems/pid.cpp -o /tmp/brick-idle-test
+    brick/src/subsystems/melt.cpp brick/src/subsystems/pid.cpp \
+    brick/src/subsystems/led_display.cpp -o /tmp/brick-idle-test
 /tmp/brick-idle-test
+c++ -std=c++17 -O2 -Itests/host tests/led_display_test.cpp \
+    brick/src/subsystems/melt.cpp brick/src/subsystems/pid.cpp \
+    brick/src/subsystems/led_display.cpp brick/src/subsystems/led.cpp \
+    -o /tmp/brick-display-test
+/tmp/brick-display-test
 c++ -std=c++17 -O2 -Itests/host -Ibrick tests/comms_export_test.cpp \
     brick/src/subsystems/comms.cpp brick/src/subsystems/run_recorder.cpp \
     brick/src/subsystems/rssi_rpm_estimator.cpp brick/src/subsystems/rpm_heading_tracker.cpp \

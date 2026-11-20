@@ -1,6 +1,7 @@
 #include "melt.h"
 #include "led.h"
 #include <Arduino.h>
+#include <algorithm>
 #include <cmath>
 #include <math.h>
 
@@ -122,7 +123,9 @@ void Melt::general_update() {
     uint8_t *desired_led_nums = led_display.desiredNums();
 
     // update digits with rpm
-    int int_rpm = input.rpm;
+    const int int_rpm = std::isfinite(input.rpm)
+                            ? int(std::clamp(input.rpm, 0.f, 9999.f))
+                            : 0;
     desired_led_nums[0] = (int_rpm / 1000) % 10;
     desired_led_nums[1] = (int_rpm / 100) % 10;
     desired_led_nums[2] = (int_rpm / 10) % 10;
@@ -249,6 +252,7 @@ void Melt::led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],
   // if not actually moving, just display a solid color
   if (!melting) {
     fill_color(255, 255, 255, red, green, blue);
+    return;
   }
 
   // offset for all led functions, should center so that
@@ -261,9 +265,7 @@ void Melt::led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],
   // those dealys dont exist
   rotation_pct_us += rotation_time_micros * input.led_shift_amount;
 
-  if (rotation_pct_us > rotation_time_micros) {
-    rotation_pct_us -= rotation_time_micros;
-  }
+  rotation_pct_us %= int32_t(rotation_time_micros);
   if (rotation_pct_us < 0) {
     rotation_pct_us += rotation_time_micros;
   }
@@ -290,23 +292,27 @@ void Melt::led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],
                           rotation_pct_us <= led_vector_end_us;
   }
 
-  if (movement_vec_led_on) {
-    int num_vector_leds_on = led_vector_magnitude * 8;
+  const int num_vector_leds_on = led_vector_magnitude * NUM_LEDS;
+  if (movement_vec_led_on && num_vector_leds_on > 0) {
     color_first_n(255, 255, 0, red, green, blue, num_vector_leds_on);
   } else if (heading_led_on) {
     // need to calculuate pct in current range
     int32_t curr_led_heading_start_us = led_heading_start_us;
-    int32_t curr_led_heading_end_us = curr_led_heading_end_us;
+    int32_t curr_led_heading_end_us = led_heading_end_us;
     int32_t curr_rotation_pct_us = rotation_pct_us;
 
     // make sure [start,end] range is continuous
     if (curr_led_heading_start_us > curr_led_heading_end_us) {
       curr_led_heading_end_us += rotation_time_micros;
-      if (curr_rotation_pct_us >= 0)
+      if (curr_rotation_pct_us < curr_led_heading_start_us)
         curr_rotation_pct_us += rotation_time_micros;
     }
 
     float width_us = curr_led_heading_end_us - curr_led_heading_start_us;
+    if (width_us <= 0) {
+      fill_color(0, 0, 0, red, green, blue);
+      return;
+    }
     float pct = (curr_rotation_pct_us - curr_led_heading_start_us) / width_us;
     led_display.fast_update(pct, red, green, blue);
     // done for testing
