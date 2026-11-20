@@ -15,8 +15,10 @@ provides manual translation flip, live telemetry, log commands, CSV copy/downloa
 and a run inspector with locally reconstructed correlation curves. Throttle,
 translation, and arming remain on the physical radio.
 
-Top/bottom LED data now use GPIO 1/4 with blue/red heading digits. Rewire the bottom
-data line separately, or change those pins in `brick/config.h`. Control/telemetry
+Top/bottom LED data use GPIO 1/4 with opposite white/blue palettes, swapped by
+the flip control. A solid 0.3-turn bar marks theta=0; the last pixel shows a hue
+wheel. Rewire the bottom data line separately, or change those pins in
+`brick/config.h`. Control/telemetry
 packets are versioned and require updating **both** ESPs; persisted dump format
 remains v5. See [setup, mappings, wiring, and RF notes](tools/console/README.md).
 

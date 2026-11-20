@@ -85,20 +85,26 @@ void Melt::general_update() {
 
     vector_direction_multiplier = input.is_upright ? 1 : -1;
 
+    // The solid heading bar is separate from the back-facing RPM display.
+    const float bar_width = std::isfinite(config.bar_led_width)
+                                ? std::clamp(config.bar_led_width, 0.f, 1.f)
+                                : 0;
+    led_bar_half_width_us = rotation_time_micros * bar_width / 2;
+
     // led stuff
     const int32_t half_led_heading_width_us =
         (rotation_time_micros * config.heading_led_width) / 2;
 
-    // center around 0
-    // led_start_timestamp wraps around since subtracting
-    led_heading_start_us = 0 - half_led_heading_width_us;
-    led_heading_end_us = 0 + half_led_heading_width_us;
+    // for now, center at other side to test readability
+    float led_heading_offset_us = rotation_time_micros * 0.5f;
+    led_display_start_us = led_heading_offset_us - half_led_heading_width_us;
+    led_display_end_us = led_heading_offset_us + half_led_heading_width_us;
 
-    if (led_heading_start_us < 0) {
-      led_heading_start_us += rotation_time_micros;
+    if (led_display_start_us < 0) {
+      led_display_start_us += rotation_time_micros;
     }
-    if (led_heading_end_us > rotation_time_micros) {
-      led_heading_end_us -= rotation_time_micros;
+    if (led_display_end_us > rotation_time_micros) {
+      led_display_end_us -= rotation_time_micros;
     }
 
     float target_theta_pct = target_theta / (2.f * M_PI);
@@ -127,8 +133,8 @@ void Melt::general_update() {
         std::isfinite(input.rpm) ? int(std::clamp(input.rpm, 0.f, 9999.f)) : 0;
     desired_led_nums[0] = (int_rpm / 1000) % 10;
     desired_led_nums[1] = (int_rpm / 100) % 10;
-    desired_led_nums[2] = (int_rpm / 10) % 10;
-    desired_led_nums[3] = int_rpm % 10;
+    desired_led_nums[2] = 0;
+    desired_led_nums[3] = 0;
 
     // after updating digits do general update
     led_display.general_update();
@@ -171,27 +177,17 @@ void Melt::fast_update() {
   } else if (active_drive_type == DriveType::Tank) {
     fast_update_tank();
   }
+  led_function(theta / (2 * M_PI) * rotation_time_micros, output.led_red,
+               output.led_green, output.led_blue);
 }
 
 void Melt::fast_update_tank() {
   output.left_power = tank_left_power;
   output.right_power = tank_right_power;
-
-  // fill_color(255, 255, 0, output.led_red, output.led_green, output.led_blue);
-  if (input.is_upright) {
-    // fill_color(255, 255, 255, red, green, blue);
-    fill_color(255, 255, 255, output.led_red, output.led_green,
-               output.led_blue);
-  } else {
-    fill_color(255, 255, 0, output.led_red, output.led_green, output.led_blue);
-  }
 }
 
 // TODO: change multipliers to allow int-only math
 void Melt::fast_update_melt(float current_theta) {
-  const int32_t rotation_pct_us =
-      current_theta / (2 * M_PI) * rotation_time_micros;
-
   // Calculate diff in range -PI to PI
   float diff = current_theta - target_theta;
 
@@ -245,87 +241,70 @@ void Melt::fast_update_melt(float current_theta) {
 
   output.left_power = left_throttle;
   output.right_power = right_throttle;
-
-  led_function(rotation_pct_us, output.led_red, output.led_green,
-               output.led_blue);
 }
 
 void Melt::led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],
                         uint8_t blue[]) {
-
-  // if not actually moving, just display a solid color
-  if (!melting) {
-    fill_color(255, 255, 255, red, green, blue);
-    return;
-  }
-
-  // offset for all led functions, should center so that
-  // rotation_pct_us = 0 is the direction of movement if moving directly
-  // forwards
-  // NOTE: most likely negative
-  // consider some command sent at t = 0, and that command actuates after delays
-  // at t = 1. We want the leds at t = 1 to display the vector that would have
-  // been displayed at t = 0, so we shift back time to make it appear as if
-  // those dealys dont exist
+  // Use the same latency-shifted angle for all three ranges and the hue wheel.
   rotation_pct_us += rotation_time_micros * input.led_shift_amount;
-
   rotation_pct_us %= int32_t(rotation_time_micros);
-  if (rotation_pct_us < 0) {
+  if (rotation_pct_us < 0)
     rotation_pct_us += rotation_time_micros;
-  }
 
-  bool heading_led_on = false;
-  bool movement_vec_led_on = false;
-
-  // displays heading LED at correct location
-  if (led_heading_start_us > led_heading_end_us) {
-    // range crosses 0, checking if in range must be done with or
-    heading_led_on = rotation_pct_us >= led_heading_start_us ||
-                     rotation_pct_us <= led_heading_end_us;
-  } else {
-    heading_led_on = rotation_pct_us >= led_heading_start_us &&
-                     rotation_pct_us <= led_heading_end_us;
-  }
-
-  if (led_vector_start_us > led_vector_end_us) {
-    // range crosses 0, checking if in range must be done with or
-    movement_vec_led_on = rotation_pct_us >= led_vector_start_us ||
-                          rotation_pct_us <= led_vector_end_us;
-  } else {
-    movement_vec_led_on = rotation_pct_us >= led_vector_start_us &&
-                          rotation_pct_us <= led_vector_end_us;
-  }
-
-  const int num_vector_leds_on = led_vector_magnitude * NUM_LEDS;
-  if (movement_vec_led_on && num_vector_leds_on > 0) {
-    color_first_n(255, 255, 0, red, green, blue, num_vector_leds_on);
-  } else if (heading_led_on) {
-    // need to calculuate pct in current range
-    int32_t curr_led_heading_start_us = led_heading_start_us;
-    int32_t curr_led_heading_end_us = led_heading_end_us;
-    int32_t curr_rotation_pct_us = rotation_pct_us;
-
-    // make sure [start,end] range is continuous
-    if (curr_led_heading_start_us > curr_led_heading_end_us) {
-      curr_led_heading_end_us += rotation_time_micros;
-      if (curr_rotation_pct_us < curr_led_heading_start_us)
-        curr_rotation_pct_us += rotation_time_micros;
+  fill_color(LedPalette::background.red, LedPalette::background.green,
+             LedPalette::background.blue, red, green, blue);
+  if (active_drive_type == DriveType::Melting && melting) {
+    const auto in_range = [rotation_pct_us](int32_t start, int32_t end) {
+      return start > end ? rotation_pct_us >= start || rotation_pct_us <= end
+                         : rotation_pct_us >= start && rotation_pct_us <= end;
+    };
+    // Back-to-front layers: heading bar, RPM text, translation vector. Painting
+    // only the vector's lit rows leaves the underlying bar/text visible.
+    const int32_t distance_to_zero = std::min(
+        rotation_pct_us, int32_t(rotation_time_micros) - rotation_pct_us);
+    if (led_bar_half_width_us > 0 &&
+        distance_to_zero <= led_bar_half_width_us) {
+      fill_color(config.bar_led_color.red, config.bar_led_color.green,
+                 config.bar_led_color.blue, red, green, blue);
     }
-
-    float width_us = curr_led_heading_end_us - curr_led_heading_start_us;
-    if (width_us <= 0) {
-      fill_color(0, 0, 0, red, green, blue);
-      return;
+    if (in_range(led_display_start_us, led_display_end_us)) {
+      int32_t start = led_display_start_us, end = led_display_end_us;
+      int32_t current = rotation_pct_us;
+      if (start > end) {
+        end += rotation_time_micros;
+        if (current < start)
+          current += rotation_time_micros;
+      }
+      if (end > start)
+        led_display.fast_update(float(current - start) / (end - start), red,
+                                green, blue);
     }
-    float pct = (curr_rotation_pct_us - curr_led_heading_start_us) / width_us;
-    led_display.fast_update(pct, red, green, blue);
-    // done for testing
-    // if (input.is_upright) {
-    //   fill_color(0, 0, 255, red, green, blue);
-    // } else {
-    //   fill_color(255, 0, 0, red, green, blue);
-    // }
-  } else {
-    fill_color(0, 0, 0, red, green, blue);
+    const int count =
+        std::clamp(int(led_vector_magnitude * LedDisplay::data_pixels), 0,
+                   LedDisplay::data_pixels);
+    if (count > 0 && in_range(led_vector_start_us, led_vector_end_us)) {
+      for (int i = 0; i < count; ++i) {
+        red[i] = LedPalette::vector.red;
+        green[i] = LedPalette::vector.green;
+        blue[i] = LedPalette::vector.blue;
+      }
+    }
+  }
+  // Always write this last, including idle/tank mode; it can never become a
+  // text stroke or a vector/bar row. One revolution traverses the full hue
+  // wheel.
+  const LedColor wheel =
+      LedPalette::hue(float(rotation_pct_us) / rotation_time_micros);
+  red[LedDisplay::wheel_pixel] = wheel.red;
+  green[LedDisplay::wheel_pixel] = wheel.green;
+  blue[LedDisplay::wheel_pixel] = wheel.blue;
+  if (!input.is_upright) {
+    for (int i = 0; i < NUM_LEDS; ++i) {
+      const LedColor color = LedPalette::flip({red[i], green[i], blue[i]},
+                                              i == LedDisplay::wheel_pixel);
+      red[i] = color.red;
+      green[i] = color.green;
+      blue[i] = color.blue;
+    }
   }
 }

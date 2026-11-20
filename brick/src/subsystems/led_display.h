@@ -1,11 +1,16 @@
 #pragma once
 #include "../../config.h"
+#include "led_palette.h"
 #include <atomic>
 #include <cstdint>
 
 // more advanced things to display while melting
 class LedDisplay {
 public:
+  static_assert(NUM_LEDS >= 6,
+                "Five glyph rows plus one hue pixel are required");
+  static constexpr int wheel_pixel = NUM_LEDS - 1;
+  static constexpr int data_pixels = NUM_LEDS - 1;
   // precomputes some values for the fast update
   void general_update();
 

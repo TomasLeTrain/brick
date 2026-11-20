@@ -91,6 +91,9 @@ struct MeltConfig {
 
   float heading_led_width = 0.5f;
   float vector_led_width = 0.03f;
+  // Fraction of a full turn, centered on theta=0 independently of the text.
+  float bar_led_width = 0.3f;
+  LedColor bar_led_color{0, 0, 255};
 
   // rpm must reach above this to be considered melting
   float min_melting_rpm = 500;
@@ -150,8 +153,9 @@ private:
   HeadingClock heading;
   uint32_t rotation_time_micros = 6000000;
 
-  int32_t led_heading_start_us, led_heading_end_us;
+  int32_t led_display_start_us, led_display_end_us;
   int32_t led_vector_start_us, led_vector_end_us;
+  int32_t led_bar_half_width_us = 0;
 
   // in range [0,1]
   float led_vector_magnitude;

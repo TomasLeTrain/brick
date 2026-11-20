@@ -1,5 +1,6 @@
 #include "led.h"
 #include "../../config.h"
+#include "led_palette.h"
 #include <Arduino.h>
 #include <algorithm>
 #include <cstring>
@@ -144,9 +145,10 @@ void LED::leds_on_array(const uint8_t red[], const uint8_t green[],
   for (size_t i = 0; i < NUM_LEDS; i++) {
     uint8_t r = red[i], g = green[i], b = blue[i];
     if (bottom_face) {
-      std::swap(r, b); // Blue heading -> red; yellow vector -> cyan.
-      if (r == g && g == b)
-        g = 0; // White idle -> magenta, off stays off.
+      const LedColor color = LedPalette::flip({r, g, b}, i == NUM_LEDS - 1);
+      r = color.red;
+      g = color.green;
+      b = color.blue;
     }
     int32_t red_val = (int(r) * brightness) >> 8;
     int32_t green_val = (int(g) * brightness) >> 8;

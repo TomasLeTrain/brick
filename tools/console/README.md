@@ -60,16 +60,31 @@ the received orientation separately from the sender's requested orientation.
 
 Separate the two strips' data wires before using two colors. By default:
 
-| Output | Data GPIO | Heading digits | Translation vector |
-| --- | --- | --- | --- |
-| Top | 1 | Blue | Yellow |
-| Bottom | 4 | Red | Cyan |
+| Face while upright | Data GPIO | Background | RPM text / heading bar | Translation vector |
+| --- | --- | --- | --- | --- |
+| Top | 1 | White | Blue | Pink |
+| Bottom | 4 | Blue | White | Mint |
+
+The manual flip swaps these palettes between faces without rotating the ranges.
+The text sweep retains the merged horizontal/row reversal, is centered at theta
+= pi, and displays RPM rounded down to hundreds. The third, solid heading bar is
+centered at theta = 0 with width **0.3 turns** (108 degrees). Change
+`MeltConfig::bar_led_width` / `bar_led_color` to adjust it. The text and vector
+ranges keep their own widths. Text overrides the bar where they overlap; lit
+vector rows override either, leaving the remaining rows visible beneath them.
+
+Pixel `NUM_LEDS - 1` (7 on an eight-pixel strip) is reserved for a full-saturation
+hue wheel: red at theta=0, green at 120 degrees, blue at 240 degrees. The other
+face displays the opposite hue; manual flip swaps those too. The first seven
+pixels carry the bar/vector and all five glyph rows, so the hue indicator never
+cuts through the text. All ranges and the wheel share the existing LED latency
+shift. Idle/tank mode uses the face background plus the hue pixel.
 
 Edit `NEOPIXEL_PIN` and `BOTTOM_NEOPIXEL_PIN` in `brick/config.h` if your board
 needs different pins. Each output is `NUM_LEDS` pixels (currently 8); retain common
 ground and the existing power arrangement. The row order retains the merged
-body/display configuration. Status patterns remain shared; ready idle is white on top and magenta below. The two LED
-instances have independent RMT buffers, and flash saving parks/drains **both**
+body/display configuration. Disconnect/switch-off status patterns remain shared.
+The two LED instances have independent RMT buffers, and flash saving parks/drains **both**
 outputs plus both motors before writing flash. Each output uses one RMT memory
 block so the ESP32-S3 has room for all four TX channels.
 

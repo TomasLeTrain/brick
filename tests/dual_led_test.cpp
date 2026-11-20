@@ -1,4 +1,5 @@
 #include "../brick/src/subsystems/led.h"
+#include "../brick/src/subsystems/led_palette.h"
 #include <cassert>
 #include <vector>
 uint32_t host_ms = 1000;
@@ -37,20 +38,42 @@ int main() {
   bottom.leds_on_array(r, g, blue, true);
   assert(byte(a, 0) == 254 && byte(a, 1) == 254 &&
          byte(a, 2) == 254); // White, GRB.
-  assert(byte(b, 0) == 0 && byte(b, 1) == 254 &&
-         byte(b, 2) == 254); // Magenta idle.
+  assert(byte(b, 0) == 0 && byte(b, 1) == 0 &&
+         byte(b, 2) == 254); // Blue background.
   host_rmt_complete_all();
   std::fill_n(r, NUM_LEDS, 0);
   std::fill_n(g, NUM_LEDS, 0);
   bottom.leds_on_array(r, g, blue, true);
-  assert(byte(b, 0) == 0 && byte(b, 1) == 254 &&
-         byte(b, 2) == 0); // Red heading.
+  assert(byte(b, 0) == 254 && byte(b, 1) == 254 &&
+         byte(b, 2) == 254); // White text.
   host_rmt_complete_all();
   std::fill_n(r, NUM_LEDS, 255);
-  std::fill_n(g, NUM_LEDS, 255);
-  std::fill_n(blue, NUM_LEDS, 0);
+  std::fill_n(g, NUM_LEDS, 0);
+  std::fill_n(blue, NUM_LEDS, 128);
   bottom.leds_on_array(r, g, blue, true);
   assert(byte(b, 0) == 254 && byte(b, 1) == 0 &&
-         byte(b, 2) == 254); // Cyan vector.
+         byte(b, 2) == 127); // Mint vector.
+  host_rmt_complete_all();
+  // At the dedicated wheel pixel a blue hue becomes yellow, not white text.
+  std::fill_n(r, NUM_LEDS, 0);
+  std::fill_n(g, NUM_LEDS, 0);
+  std::fill_n(blue, NUM_LEDS, 255);
+  bottom.leds_on_array(r, g, blue, true);
+  const int last = 3 * (NUM_LEDS - 1);
+  assert(byte(b, last) == 254 && byte(b, last + 1) == 254 &&
+         byte(b, last + 2) == 0);
+  host_rmt_complete_all();
+  // Opposite face applied to an inverted image restores the original palette.
+  for (int i = 0; i < NUM_LEDS; ++i) {
+    const bool wheel = i == NUM_LEDS - 1;
+    const LedColor color = LedPalette::flip({r[i], g[i], blue[i]}, wheel);
+    r[i] = color.red;
+    g[i] = color.green;
+    blue[i] = color.blue;
+  }
+  bottom.leds_on_array(r, g, blue, true);
+  assert(byte(b, 0) == 0 && byte(b, 1) == 0 && byte(b, 2) == 254);
+  assert(byte(b, last) == 0 && byte(b, last + 1) == 0 &&
+         byte(b, last + 2) == 254);
   host_rmt_complete_all();
 }

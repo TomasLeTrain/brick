@@ -55,19 +55,16 @@ int main() {
   melt.set_phase_reference(host_ms * 1000, 3.14159265358979323846f, 1500);
   melt.fast_update();
   assert(melt.get_output()->left_power < melt.get_output()->right_power);
-  // Flip reverses only translation, leaving the visible vector/heading intact.
+  // Flip reverses translation while retaining the same heading angle.
   melt.set_phase_reference(host_ms * 1000, 0, 1500);
   melt.fast_update();
-  const auto upright = *melt.get_output();
+  const float upright_heading = melt.heading_rad();
   input.is_upright = false;
   melt.general_update();
   melt.fast_update();
   assert(melt.get_output()->left_power < melt.get_output()->right_power);
-  for (int i = 0; i < NUM_LEDS; ++i) {
-    assert(melt.get_output()->led_red[i] == upright.led_red[i]);
-    assert(melt.get_output()->led_green[i] == upright.led_green[i]);
-    assert(melt.get_output()->led_blue[i] == upright.led_blue[i]);
-  }
+  assert(melt.heading_rad() == upright_heading);
+
   // Loss of trustworthy RPM suspends translation, not the feedforward spin.
   input.rpm = 0;
   melt.general_update();

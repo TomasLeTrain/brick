@@ -275,7 +275,7 @@ void Robot::motor_update() {
     melt.fast_update();
     const MeltOutput *output = melt.get_output();
     leds.leds_on_array(output->led_red, output->led_green, output->led_blue);
-    // Top heading = blue, bottom = red; vector yellow/cyan respectively.
+    // The bottom face uses the opposite palette; manual flip swaps the faces.
     bottom_leds.leds_on_array(output->led_red, output->led_green,
                               output->led_blue, true);
 
