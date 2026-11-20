@@ -37,6 +37,7 @@ void Robot::begin() {
   }
   Serial.printf("# boot reset_reason=%d (%s)\n", int(reset), reason);
   // TODO: check for any begin errors and report with leds
+  // leds.set_brightness(30);
   leds.set_brightness(30);
 
   left_motor.begin(LEFT_MOTOR_PIN, DSHOT600, false, 14);
@@ -256,6 +257,7 @@ void Robot::motor_update() {
     if (!storage_gate.acknowledged(storage_token)) {
       left_motor.send(0);
       right_motor.send(0);
+      leds.set_brightness(30);
       motor_active.store(false);
       // Finish all queued peripheral transactions before flash can disable
       // caches/interrupts. No RMT calls follow the ACK until parking is
@@ -283,16 +285,21 @@ void Robot::motor_update() {
         fabs(output->right_power) < 0.0001) {
       left_motor.send(0);
       right_motor.send(0);
+      leds.set_brightness(30);
       motor_active.store(false);
     } else {
-      motor_active.store(true);
+      // motor_active.store(true);
+      // left_motor.sendThrottle3D(-output->left_power * 100.f);
+      // right_motor.sendThrottle3D(output->right_power * 100.f);
       left_motor.sendThrottle3D(-output->left_power * 100.f);
       right_motor.sendThrottle3D(output->right_power * 100.f);
+      leds.set_brightness(150);
     }
   } else {
     // stop the motors unless strictly good for spinning
     left_motor.send(0);
     right_motor.send(0);
+    leds.set_brightness(30);
     motor_active.store(false);
     // Keep every runtime LED/RMT call on this task, including switch-off and
     // disconnect indications. The general task must not submit after park ACK.

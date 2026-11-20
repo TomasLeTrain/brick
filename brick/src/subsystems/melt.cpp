@@ -123,9 +123,8 @@ void Melt::general_update() {
     uint8_t *desired_led_nums = led_display.desiredNums();
 
     // update digits with rpm
-    const int int_rpm = std::isfinite(input.rpm)
-                            ? int(std::clamp(input.rpm, 0.f, 9999.f))
-                            : 0;
+    const int int_rpm =
+        std::isfinite(input.rpm) ? int(std::clamp(input.rpm, 0.f, 9999.f)) : 0;
     desired_led_nums[0] = (int_rpm / 1000) % 10;
     desired_led_nums[1] = (int_rpm / 100) % 10;
     desired_led_nums[2] = (int_rpm / 10) % 10;
@@ -236,8 +235,11 @@ void Melt::fast_update_melt(float current_theta) {
   linear_power *= vector_direction_multiplier;
 
   // assumes both + means bot goes forwards
-  left_throttle -= linear_power;
-  right_throttle += linear_power;
+  // left_throttle -= linear_power;
+  // right_throttle += linear_power;
+  //
+  left_throttle += linear_power;
+  right_throttle -= linear_power;
 
   output.left_power = left_throttle;
   output.right_power = right_throttle;

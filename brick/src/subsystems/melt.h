@@ -56,13 +56,14 @@ struct MeltConfig {
   // the absolute max that is applied to motor for translation
   // on range [0, 1]
   // float max_translation_power = 0.1;
-  float max_translation_power = 0.15;
+  // float max_translation_power = 0.15;
+  float max_translation_power = 0.225;
   TranslationMethod translation_method = TranslationMethod::Sine;
 
   // how sensitive turning for melt is
   float turn_magnitude_pct = 0.0012;
 
-  float max_target_rpm = 3000;
+  float max_target_rpm = 3300;
 
   // deadzone for translation vector magnitude
   // if magnitude below this value then no translation occurs

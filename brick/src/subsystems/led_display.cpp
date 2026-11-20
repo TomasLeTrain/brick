@@ -4,16 +4,11 @@
 namespace {
 // Three columns by five rows, followed by one blank spacing column.
 constexpr uint8_t digit_masks[10][4] = {
-    {0b11111, 0b10001, 0b11111, 0},
-    {0b00000, 0b00000, 0b11111, 0},
-    {0b10111, 0b10101, 0b11101, 0},
-    {0b10101, 0b10101, 0b11111, 0},
-    {0b11100, 0b00100, 0b11111, 0},
-    {0b11101, 0b10101, 0b10111, 0},
-    {0b11111, 0b10101, 0b10111, 0},
-    {0b10000, 0b10000, 0b11111, 0},
-    {0b11111, 0b10101, 0b11111, 0},
-    {0b11101, 0b10101, 0b11111, 0},
+    {0b11111, 0b10001, 0b11111, 0}, {0b00000, 0b00000, 0b11111, 0},
+    {0b10111, 0b10101, 0b11101, 0}, {0b10101, 0b10101, 0b11111, 0},
+    {0b11100, 0b00100, 0b11111, 0}, {0b11101, 0b10101, 0b10111, 0},
+    {0b11111, 0b10101, 0b10111, 0}, {0b10000, 0b10000, 0b11111, 0},
+    {0b11111, 0b10101, 0b11111, 0}, {0b11101, 0b10101, 0b11111, 0},
 };
 } // namespace
 
@@ -38,8 +33,8 @@ void LedDisplay::fast_update(float pct, uint8_t led_red[NUM_LEDS],
       mask = digit_masks[digit][pixel % 4];
   }
   for (int i = 0; i < NUM_LEDS; ++i) {
-    led_red[i] = 0;
-    led_green[i] = 0;
-    led_blue[i] = i < 8 && ((mask >> i) & 1) ? 255 : 0;
+    led_red[NUM_LEDS - i - 1] = 0;
+    led_green[NUM_LEDS - i - 1] = 0;
+    led_blue[NUM_LEDS - i - 1] = i < 8 && ((mask >> i) & 1) ? 255 : 0;
   }
 }
