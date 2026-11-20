@@ -23,8 +23,10 @@ inline void flash_operation() {
 struct HostSerial {
   std::string *sink = nullptr;
   int room = 64;
-  int available() const { return 0; }
-  int read() { return -1; }
+  std::string input;
+  size_t input_position = 0;
+  int available() const { return int(input.size() - input_position); }
+  int read() { return available() ? int(static_cast<unsigned char>(input[input_position++])) : -1; }
   int availableForWrite() const { return room; }
   size_t write(const uint8_t *data, size_t length) {
     if (length > size_t(room))

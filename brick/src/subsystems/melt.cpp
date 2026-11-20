@@ -1,6 +1,7 @@
 #include "melt.h"
 #include "led.h"
 #include <Arduino.h>
+#include <algorithm>
 #include <cmath>
 #include <math.h>
 
@@ -28,10 +29,6 @@ void Melt::general_update() {
     target_theta += 2.0f * M_PI;
   if (target_theta >= 2.0f * M_PI)
     target_theta -= 2.0f * M_PI;
-
-  // precomputed
-  // current_theta_multiplier * rotation_pct_us = theta
-  current_theta_multiplier = (2 * M_PI) / rotation_time_micros;
 
   float turn_control = input.turn_control;
 
@@ -81,8 +78,10 @@ void Melt::general_update() {
     // base_spin_power =
     //     input.target_rpm_control * config.melt_max_throttle_magnitude;
 
-    turn_factor_us =
-        rotation_time_micros * turn_control * config.turn_magnitude_pct;
+    // Preserve the previous nominal 1 kHz turning gain, but integrate actual
+    // elapsed time independently of rotor phase and RSSI corrections.
+    turn_rate_rad_s =
+        2 * M_PI * 1000 * turn_control * config.turn_magnitude_pct;
 
     vector_direction_multiplier = input.is_upright ? 1 : -1;
 
@@ -121,6 +120,19 @@ void Melt::general_update() {
 
     led_vector_magnitude = melt_linear_mag;
 
+    uint8_t *desired_led_nums = led_display.desiredNums();
+
+    // update digits with rpm
+    const int int_rpm =
+        std::isfinite(input.rpm) ? int(std::clamp(input.rpm, 0.f, 9999.f)) : 0;
+    desired_led_nums[0] = (int_rpm / 1000) % 10;
+    desired_led_nums[1] = (int_rpm / 100) % 10;
+    desired_led_nums[2] = (int_rpm / 10) % 10;
+    desired_led_nums[3] = int_rpm % 10;
+
+    // after updating digits do general update
+    led_display.general_update();
+
   } else if (active_drive_type == DriveType::Tank) {
     // deadzones
     float linear = input.vx;
@@ -140,7 +152,7 @@ void Melt::general_update() {
     tank_right_power = -(linear + angular);
 
     // desaturate
-    float max_mag = std::max(tank_left_power, tank_right_power);
+    float max_mag = fmaxf(fabsf(tank_left_power), fabsf(tank_right_power));
     if (max_mag > config.tank_max_motor_mag) {
       float multiplier = config.tank_max_motor_mag / max_mag;
       tank_left_power *= multiplier;
@@ -151,8 +163,11 @@ void Melt::general_update() {
 
 // updates fast loop params for how to move motors
 void Melt::fast_update() {
+  const float theta = heading.render(
+      micros(),
+      active_drive_type == DriveType::Melting ? turn_rate_rad_s.load() : 0);
   if (active_drive_type == DriveType::Melting) {
-    fast_update_melt();
+    fast_update_melt(theta);
   } else if (active_drive_type == DriveType::Tank) {
     fast_update_tank();
   }
@@ -173,21 +188,9 @@ void Melt::fast_update_tank() {
 }
 
 // TODO: change multipliers to allow int-only math
-void Melt::fast_update_melt() {
-  rotation_start_timestamp += turn_factor_us;
-
-  // amount of time spent in current rotation, in us
-  int32_t rotation_pct_us = micros() - rotation_start_timestamp;
-
-  // did a full rotation
-  if (rotation_pct_us > rotation_time_micros) {
-    // update time spent in rotation
-    rotation_pct_us -= rotation_time_micros;
-    // update when rotation started
-    rotation_start_timestamp += rotation_time_micros;
-  }
-
-  float current_theta = rotation_pct_us * current_theta_multiplier;
+void Melt::fast_update_melt(float current_theta) {
+  const int32_t rotation_pct_us =
+      current_theta / (2 * M_PI) * rotation_time_micros;
 
   // Calculate diff in range -PI to PI
   float diff = current_theta - target_theta;
@@ -232,8 +235,11 @@ void Melt::fast_update_melt() {
   linear_power *= vector_direction_multiplier;
 
   // assumes both + means bot goes forwards
-  left_throttle -= linear_power;
-  right_throttle += linear_power;
+  // left_throttle -= linear_power;
+  // right_throttle += linear_power;
+  //
+  left_throttle += linear_power;
+  right_throttle -= linear_power;
 
   output.left_power = left_throttle;
   output.right_power = right_throttle;
@@ -248,6 +254,7 @@ void Melt::led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],
   // if not actually moving, just display a solid color
   if (!melting) {
     fill_color(255, 255, 255, red, green, blue);
+    return;
   }
 
   // offset for all led functions, should center so that
@@ -260,9 +267,7 @@ void Melt::led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],
   // those dealys dont exist
   rotation_pct_us += rotation_time_micros * input.led_shift_amount;
 
-  if (rotation_pct_us > rotation_time_micros) {
-    rotation_pct_us -= rotation_time_micros;
-  }
+  rotation_pct_us %= int32_t(rotation_time_micros);
   if (rotation_pct_us < 0) {
     rotation_pct_us += rotation_time_micros;
   }
@@ -289,16 +294,35 @@ void Melt::led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],
                           rotation_pct_us <= led_vector_end_us;
   }
 
-  if (movement_vec_led_on) {
-    int num_vector_leds_on = led_vector_magnitude * 8;
+  const int num_vector_leds_on = led_vector_magnitude * NUM_LEDS;
+  if (movement_vec_led_on && num_vector_leds_on > 0) {
     color_first_n(255, 255, 0, red, green, blue, num_vector_leds_on);
   } else if (heading_led_on) {
-    // done for testing
-    if (input.is_upright) {
-      fill_color(0, 0, 255, red, green, blue);
-    } else {
-      fill_color(255, 0, 0, red, green, blue);
+    // need to calculuate pct in current range
+    int32_t curr_led_heading_start_us = led_heading_start_us;
+    int32_t curr_led_heading_end_us = led_heading_end_us;
+    int32_t curr_rotation_pct_us = rotation_pct_us;
+
+    // make sure [start,end] range is continuous
+    if (curr_led_heading_start_us > curr_led_heading_end_us) {
+      curr_led_heading_end_us += rotation_time_micros;
+      if (curr_rotation_pct_us < curr_led_heading_start_us)
+        curr_rotation_pct_us += rotation_time_micros;
     }
+
+    float width_us = curr_led_heading_end_us - curr_led_heading_start_us;
+    if (width_us <= 0) {
+      fill_color(0, 0, 0, red, green, blue);
+      return;
+    }
+    float pct = (curr_rotation_pct_us - curr_led_heading_start_us) / width_us;
+    led_display.fast_update(pct, red, green, blue);
+    // done for testing
+    // if (input.is_upright) {
+    //   fill_color(0, 0, 255, red, green, blue);
+    // } else {
+    //   fill_color(255, 0, 0, red, green, blue);
+    // }
   } else {
     fill_color(0, 0, 0, red, green, blue);
   }

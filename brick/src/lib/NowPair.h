@@ -1,3 +1,6 @@
+#ifndef BRICK_NOW_PAIR_H
+#define BRICK_NOW_PAIR_H
+
 #pragma once
 
 #include <Arduino.h>
@@ -22,6 +25,8 @@ public:
   using DataCallback = void (*)(const uint8_t *data, size_t length, int rssiDbm,
                                 uint32_t timestampUs, void *arg);
   using RssiCallback = void (*)(int rssiDbm, uint32_t timestampUs, void *arg);
+  using TimedRssiCallback = void (*)(int rssiDbm, uint32_t radioUs,
+                                    uint32_t callbackUs, void *arg);
 
   explicit NowPair(Role role, uint8_t channel = 6, uint32_t heartbeatMs = 500,
                    uint32_t timeoutMs = 3000);
@@ -51,7 +56,14 @@ public:
   void onRssi(RssiCallback cb, void *arg) {
     _rssiCallback = cb;
     _rssiArg = arg;
-    _collectRssi.store(cb != nullptr);
+    _collectRssi.store(cb != nullptr || _timedRssiCallback != nullptr);
+  }
+  // callbackUs is captured on the Wi-Fi task before queueing, in micros()'s
+  // clock domain. Phase tracking must not mistake queue latency for rotation.
+  void onRssiTimed(TimedRssiCallback cb, void *arg) {
+    _timedRssiCallback = cb;
+    _timedRssiArg = arg;
+    _collectRssi.store(cb != nullptr || _rssiCallback != nullptr);
   }
 
   // true means queued locally, NOT delivered/acknowledged by the application.
@@ -84,6 +96,7 @@ private:
   struct RssiSample {
     int rssiDbm;
     uint32_t timestampUs;
+    uint32_t callbackUs;
   };
 
   struct RxEvent {
@@ -152,4 +165,8 @@ private:
   void *_dataArg = nullptr;
   RssiCallback _rssiCallback = nullptr;
   void *_rssiArg = nullptr;
+  TimedRssiCallback _timedRssiCallback = nullptr;
+  void *_timedRssiArg = nullptr;
 };
+
+#endif // BRICK_NOW_PAIR_H

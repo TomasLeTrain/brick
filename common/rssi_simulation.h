@@ -28,6 +28,7 @@ public:
 
   uint32_t time_us() const { return elapsed_us; }
   int rssi_dbm() const { return rssi; }
+  float phase_rad() const { return std::fmod(phase, 6.2831853071795864769); }
 
 private:
   int noise(int range) {

@@ -89,6 +89,8 @@ int main(int argc, char **argv) {
   host_transmit = transmit;
   auto robot = std::make_unique<Comms>();
   assert(robot->begin());
+  using Mode = RpmHeadingTracker::CorrectionMode;
+  assert(robot->get_heading_tracker().correction_mode() == Mode::AccelerationOnly);
   receive_frame(1, nullptr, 0); // Discover/bind the simulated sender.
   TelemetryPacket packet{};
   uint32_t last_remote_probe = host_ms / 50;
@@ -108,6 +110,30 @@ int main(int argc, char **argv) {
   for (unsigned i = 0; i < 500; ++i)
     step();
   assert(robot->connected() && telemetry > 0 && replies > 0);
+  // Boot/status announcements and the initial switch positions are not commands.
+  assert(begins == 0 && !robot->get_recorder().radio_pending());
+  Serial.input += "Slave connected\n# dump filesystem ready\nexport\n";
+  ThrottlePacket throttle{};
+  throttle.connected = true;
+  throttle.swb = false;
+  uint8_t control[8];
+  throttle.serialize(control);
+  receive_frame(4, control, sizeof(control));
+  for (unsigned i = 0; i < 150; ++i) step();
+  assert(begins == 0 && !robot->get_recorder().radio_pending());
+  assert(host_files.empty());
+  Serial.input += "t\n";
+  for (unsigned i = 0; i < 10; ++i) step();
+  assert(robot->get_heading_tracker().correction_mode() == Mode::Full);
+  uint8_t heading_command[RunDump::prefix_size + 1];
+  RunDump::prefix(heading_command, RunDump::Message::Command, 0, 0);
+  heading_command[RunDump::prefix_size] = 'a';
+  receive_frame(4, heading_command, sizeof(heading_command));
+  for (unsigned i = 0; i < 10; ++i) step();
+  assert(robot->get_heading_tracker().correction_mode() == Mode::AccelerationOnly);
+  Serial.input += "n\n";
+  for (unsigned i = 0; i < 10; ++i) step();
+  assert(robot->get_heading_tracker().correction_mode() == Mode::Disabled);
   for (unsigned i = 0; i < RunDump::capacity; ++i)
     robot->get_recorder().add_rssi(-60 - i % 8, i * 1000);
   host_motion = true;
@@ -115,14 +141,19 @@ int main(int argc, char **argv) {
   robot->get_recorder().request('s');
   for (unsigned i = 0; i < 150; ++i)
     step();
+  Serial.input += "e";
+  for (unsigned i = 0; i < 100; ++i) step();
+  assert(begins == 0 && !robot->get_recorder().radio_pending());
   const auto before_export = telemetry;
-  robot->get_recorder().request('e');
+  Serial.input += "\n";
   for (unsigned i = 0; i < 12000 && !ends; ++i)
     step();
   std::cout << "step_ms=" << step_ms << " begin=" << begins << " records=" << records << " end=" << ends
             << " telemetry=" << telemetry << " heartbeat replies=" << replies
             << " retransmitted records=" << duplicates << std::endl;
   assert(begins == 1 && records == RunDump::capacity && ends == 1);
+  robot->get_recorder().request('t');
+  assert(robot->get_heading_tracker().correction_mode() == Mode::Full);
   assert(telemetry <= before_export + 8); // Only an existing backlog may drain.
   assert(host_flash_operations == operations);
   // The next loop observes completion and resumes periodic telemetry.

@@ -50,7 +50,7 @@ public:
           RunDump::decode_record(data + RunDump::prefix_size, expected, record);
           checksum = RunDump::crc32(checksum, data + RunDump::prefix_size,
                                    expected.record_size);
-          output_size = RunDump::csv_record(output, sizeof(output), record);
+          output_size = RunDump::csv_record(output, sizeof(output), record, expected.format_version);
           output_position = 0;
           ++next;
         }

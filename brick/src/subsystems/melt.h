@@ -1,6 +1,8 @@
 #pragma once
 
 #include "../../config.h"
+#include "heading_clock.h"
+#include "led_display.h"
 #include "pid.h"
 #include <cstdint>
 
@@ -53,13 +55,15 @@ struct MeltOutput {
 struct MeltConfig {
   // the absolute max that is applied to motor for translation
   // on range [0, 1]
-  float max_translation_power = 0.1;
+  // float max_translation_power = 0.1;
+  // float max_translation_power = 0.15;
+  float max_translation_power = 0.225;
   TranslationMethod translation_method = TranslationMethod::Sine;
 
   // how sensitive turning for melt is
-  float turn_magnitude_pct = 0.0013;
+  float turn_magnitude_pct = 0.0012;
 
-  float max_target_rpm = 3000;
+  float max_target_rpm = 3300;
 
   // deadzone for translation vector magnitude
   // if magnitude below this value then no translation occurs
@@ -86,10 +90,10 @@ struct MeltConfig {
   float tank_max_motor_mag = 0.2;
 
   float heading_led_width = 0.5f;
-  float vector_led_width = 0.02f;
+  float vector_led_width = 0.03f;
 
   // rpm must reach above this to be considered melting
-  float min_melting_rpm = 400;
+  float min_melting_rpm = 500;
 
   // only apply target_rpm_control when its above this threshold
   // on range [0, 1]
@@ -108,12 +112,17 @@ public:
   MeltConfig *get_config() { return &config; }
   MeltInput *get_input() { return &input; }
   const MeltOutput *get_output() { return &output; }
+  void set_phase_reference(uint32_t timestamp_us, float phase_rad, float rpm) {
+    heading.publish(timestamp_us, phase_rad, rpm);
+  }
+  float heading_rad() const { return heading.angle(); }
 
   // General-loop intent, independent of the motor task's last applied output.
   // Zero RPM request can select tank mode, which may still command movement.
   bool has_motor_command() const {
-    return active_drive_type == DriveType::Melting ? base_spin_power != 0 :
-        tank_left_power != 0 || tank_right_power != 0;
+    return active_drive_type == DriveType::Melting
+               ? base_spin_power != 0
+               : tank_left_power != 0 || tank_right_power != 0;
   }
 
   // recalculates all values dependent on input
@@ -124,20 +133,22 @@ private:
   // updates output with tank driving scheme
   void fast_update_tank();
   // updates output with melt driving scheme
-  void fast_update_melt();
+  void fast_update_melt(float current_theta);
 
   void led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],
                     uint8_t blue[]);
 
-  MeltInput input;
-  MeltOutput output;
+  MeltInput input{};
+  MeltOutput output{};
   MeltConfig config;
 
   PID throtte_pid;
 
+  LedDisplay led_display;
+
   // below are values calculated by generated update
-  uint32_t rotation_start_timestamp = 0;
-  uint32_t rotation_time_micros;
+  HeadingClock heading;
+  uint32_t rotation_time_micros = 6000000;
 
   int32_t led_heading_start_us, led_heading_end_us;
   int32_t led_vector_start_us, led_vector_end_us;
@@ -149,7 +160,6 @@ private:
 
   // in range [0,2PI]
   float target_theta;
-  float current_theta_multiplier;
 
   // how agressively to move
   // in range [0,1]
@@ -159,7 +169,7 @@ private:
   float tank_left_power = 0;
   float tank_right_power = 0;
 
-  int32_t turn_factor_us;
+  std::atomic<float> turn_rate_rad_s{0};
 
   // -1 or 1, determined by whether robot is upside down or not
   float vector_direction_multiplier;

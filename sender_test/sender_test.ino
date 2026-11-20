@@ -2,6 +2,7 @@
 #include "IBusBM.h"
 #include "DumpReceiver.h"
 #include "../common/packets.h"
+#include "../common/dump_command.h"
 
 #define HEARTBEAT_MS 50
 #define TIMEOUT_MS 250
@@ -10,6 +11,7 @@ NowPair peer_link(NowPair::Role::Master, 6, HEARTBEAT_MS, TIMEOUT_MS);
 
 IBusBM IBus;
 DumpReceiver dump_receiver;
+DumpCommand serial_command;
 bool swd = true;
 
 void connectionChanged(bool connected, void *arg) {
@@ -64,6 +66,7 @@ void setup() {
     while (true) delay(1000);
   }
   Serial.println("Broadcasting discovery; waiting for slave...");
+  Serial.println("# commands s/p/e/f/x; heading a=accel-only t=translation-on n=off; press Enter");
 }
 
 uint32_t last_cnt_rec_update = 0;
@@ -73,8 +76,8 @@ void loop() {
   IBus.loop();
   sendThrottle();
   if (Serial.available()) {
-    const char command = Serial.read();
-    if (command == 's' || command == 'p' || command == 'e' || command == 'f' || command == 'x') {
+    const char command = serial_command.feed(Serial.read());
+    if (command) {
       if (command == 'x')
         dump_receiver.cancel();
       uint8_t request[RunDump::prefix_size + 1];

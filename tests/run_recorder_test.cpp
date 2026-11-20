@@ -315,4 +315,18 @@ int main() {
   assert((RunDump::crc32(UINT32_MAX, parked_file.data() + sizeof(header),
                         parked_file.size() - sizeof(header)) ^ UINT32_MAX) == header.crc);
 
+  // Boot with an existing saved capture and an already-connected radio. Mount
+  // and startup/echo text may announce status but must not queue an export.
+  recorder.reset();
+  messages[&robot].clear();
+  recorder = std::make_unique<RunRecorder>();
+  recorder->begin();
+  Serial.room = 64;
+  Serial.input += "Slave connected\n# dump filesystem ready\n";
+  for (unsigned i = 0; i < 100; ++i) { host_ms += 10; recorder->update(robot, true); }
+  assert(!recorder->radio_pending() && !recorder->filesystem_pending());
+  assert(std::none_of(messages[&robot].begin(), messages[&robot].end(), [](const auto &packet) {
+    return packet[3] == uint8_t(RunDump::Message::Begin) || packet[3] == uint8_t(RunDump::Message::Record);
+  }));
+
 }

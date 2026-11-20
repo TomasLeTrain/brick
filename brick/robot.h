@@ -2,18 +2,18 @@
 
 #include "config.h"
 #include "src/lib/AlfredoDShot.h"
+#include "src/subsystems/accelerometer.h"
 #include "src/subsystems/comms.h"
 #include "src/subsystems/led.h"
 #include "src/subsystems/melt.h"
-#include "src/subsystems/accelerometer.h"
 #include "src/subsystems/storage_gate.h"
 
 enum ConnectionState {
-  NetworkDisconnect,
-  ControllerDisconnect,
-  SpinSwitchOff,
-  AccelDisconnect,
-  Ready
+  NetworkDisconnect = 0,
+  ControllerDisconnect = 1,
+  SpinSwitchOff = 2,
+  // Value 3 was the removed accelerometer fault; preserve dump compatibility.
+  Ready = 4
 };
 
 class Robot {
@@ -28,10 +28,6 @@ public:
   void arming_sequence();
 
 private:
-  // TODO: move to separate class?
-  void update_z_buffer(float z_accel);
-  float get_average_z_accel();
-
   AlfredoDShot left_motor;
   AlfredoDShot right_motor;
 
@@ -51,17 +47,6 @@ private:
   // should only be true when no issues are present
   std::atomic<ConnectionState> connected{NetworkDisconnect};
 
-  bool accel_disconnected = true;
-
   // used for arming
   int command = 0;
-
-  // buffer of last z accel values to determine if bot is upright or not
-  float z_accel_queue[40];
-  size_t z_accel_position = 0;
-
-  uint32_t different_upright_time_msec = 0;
-  bool last_upright = false;
-
-  uint32_t upright_time_threshold = 400;
 };

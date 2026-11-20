@@ -2,13 +2,21 @@
 
 #include "../common/run_dump.h"
 #include "../lib/NowPair.h"
+#include "../common/dump_command.h"
 #include <FS.h>
 #include <atomic>
+static_assert(RunDump::prefix_size + sizeof(RunDump::Record) <= NowPair::MAX_PAYLOAD,
+              "Dump record exceeds radio payload");
 
 class RunRecorder {
 public:
+  using ControlCommand = const char *(*)(char command, void *arg);
+  void on_control_command(ControlCommand callback, void *arg) {
+    control_command = callback; control_arg = arg;
+  }
   void begin();
   void add_rssi(int rssi_dbm, uint32_t radio_us);
+  void add_rssi(int rssi_dbm, uint32_t radio_us, uint32_t callback_us);
   void add_state(const RunDump::Record &state);
   void request(char command);
   void on_message(const uint8_t *data, size_t length);
@@ -54,6 +62,9 @@ private:
   RunDump::Record state{};
   size_t head = 0, count = 0, saved = 0;
   uint32_t overwritten = 0, paused = 0, checksum = UINT32_MAX;
+  ControlCommand control_command = nullptr;
+  void *control_arg = nullptr;
+  DumpCommand serial_command;
   bool mounted = false, radio_export = false, ram_export = false;
   CapturePhase phase = CapturePhase::Rolling;
   bool write_failed = false, format_requested = false, serial_finishing = false;

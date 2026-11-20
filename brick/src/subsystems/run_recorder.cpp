@@ -87,10 +87,14 @@ void RunRecorder::append(const RunDump::Record &record) {
 }
 
 void RunRecorder::add_rssi(int rssi_dbm, uint32_t radio_us) {
+  add_rssi(rssi_dbm, radio_us, micros());
+}
+
+void RunRecorder::add_rssi(int rssi_dbm, uint32_t radio_us, uint32_t callback_us) {
   RunDump::Record record{};
   record.kind = 1;
   record.timestamp_us = radio_us;
-  record.received_us = micros();
+  record.received_us = callback_us;
   record.rssi_dbm = rssi_dbm;
   append(record);
 }
@@ -102,6 +106,13 @@ void RunRecorder::add_state(const RunDump::Record &new_state) {
 }
 
 void RunRecorder::request(char command) {
+  // Heading controls are independent of a capture/export already in progress.
+  if (control_command) {
+    if (const char *reply = control_command(command, control_arg)) {
+      status(reply);
+      return;
+    }
+  }
   if (command == 'x') {
     if (serial_export || radio_export || export_requested)
       stop_export("export cancelled; snapshot retained");
@@ -360,7 +371,7 @@ void RunRecorder::serial_step() {
       return;
     }
   }
-  serial_size = RunDump::csv_record(serial_buffer, sizeof(serial_buffer), record);
+  serial_size = RunDump::csv_record(serial_buffer, sizeof(serial_buffer), record, header.format_version);
   ++export_index;
 }
 
@@ -523,8 +534,8 @@ void RunRecorder::update(NowPair &link, bool storage_idle) {
     }
   }
   if (Serial.available()) {
-    const char command = Serial.read();
-    if (command == 's' || command == 'p' || command == 'e' || command == 'f' || command == 'x')
+    const char command = serial_command.feed(Serial.read());
+    if (command)
       request(command);
   }
   if ((export_requested || serial_export || radio_export) &&
