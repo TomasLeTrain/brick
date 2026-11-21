@@ -36,7 +36,16 @@ Raw Joy-Con axis/button numbers vary by OS. Check the live input preview first.
 
 The physical radio remains responsible for spin throttle, translation, SWA
 arming, and its existing failsafe detection. The computer cannot enable the
-motors or raise throttle. Heading has one owner: while enabled, the companion
+motors or raise throttle. **SWC (iBus channel 8)** selects the spin range: its
+1000 endpoint retains the feedforward range up to 3300 RPM; its 2000 endpoint
+maps the speed stick directly to 0–1 motor throttle. The middle position retains
+the last selected range; startup defaults to the feedforward range. Disconnected
+and invalid channel readings cannot change it. The spin deadzone, arming and
+control timeout still apply. Full-throttle translation outputs are clamped to
+the motor's ±1 range. The dashboard reports the selected throttle mode; dump
+throttle and steady-state RPM hint reflect the selected range. The feedforward
+hint is approximate, and the estimator's supported RPM range is unchanged.
+Heading has one owner: while enabled, the companion
 replaces the radio's turn channel; it does not add a second correction.
 
 A **150 ms** serial lease expires back to radio heading. Heading defaults to
@@ -87,7 +96,7 @@ packet does not lose the acknowledgement. The timer handles clock rollover and
 preserves the flash-save parking interlock.
 
 Refresh the console and update **both** ESPs for this revision: control packets
-use application version 2 (same 21-byte size); telemetry remains version 1 and
+use application version 3 (22 bytes); telemetry remains version 1 and
 persisted dumps remain v5. Ordinary serial lease heartbeats send orientation -1;
 only an explicit selection sends 0/1. Old console tabs must be refreshed to use
 these one-shot actions.

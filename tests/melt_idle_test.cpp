@@ -72,6 +72,28 @@ int main() {
   melt.fast_update();
   assert(melt.get_output()->left_power == melt.get_output()->right_power);
   assert(melt.get_output()->left_power > 0);
+  // SWC selects an absolute motor-throttle range, including without RPM lock.
+  // The shared command also supplies consistent log/hint values.
+  input.vx = input.vy = 0;
+  for (bool full : {false, true}) {
+    input.max_throttle = full;
+    for (float speed : {0.f, .05f, .5f, 1.f}) {
+      input.target_rpm_control = speed;
+      melt.general_update();
+      melt.fast_update();
+      const float expected = speed < .1f ? 0 : speed * (full ? 1.f : 3300 * .00015f);
+      assert(std::abs(melt.spin_feedforward(speed, full) - expected) < .00001f);
+      assert(std::abs(melt.get_output()->left_power - expected) < .00001f);
+      assert(std::abs(melt.get_output()->right_power - expected) < .00001f);
+    }
+  }
+  input.rpm = 1500;
+  input.vx = input.vy = 1;
+  melt.general_update();
+  melt.set_phase_reference(host_ms * 1000, 0, 1500);
+  melt.fast_update();
+  assert(std::abs(melt.get_output()->left_power) <= 1);
+  assert(std::abs(melt.get_output()->right_power) <= 1);
   // Low-sensitivity companion turns survive the browser's deadzone scaling;
   // the radio keeps its original deadzone for the same small input.
   const auto small_turn = [](bool companion) {

@@ -19,6 +19,9 @@ and a run inspector with locally reconstructed correlation curves. Throttle,
 translation, and arming remain on the physical radio.
 Changing the main radio's SWD also selects orientation (0 upright, 1 inverted);
 leaving it unchanged preserves Joy-Con selections.
+SWC (iBus channel 8) selects the throttle range: 1000 retains the 3300 RPM
+feedforward limit, 2000 allows 1.0 motor throttle at full stick, and the middle
+retains the previous mode. Update both ESPs for version-3 control packets.
 
 Top/bottom LED data use GPIO 1/4 with fixed white/blue and blue/white palettes.
 Orientation selection only flashes the selected face for 300 ms before restoring

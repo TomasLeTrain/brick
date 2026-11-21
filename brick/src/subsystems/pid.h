@@ -9,6 +9,7 @@ public:
   void setFeedforward(float throttle_per_rpm) {
     this->_throttle_per_rpm = throttle_per_rpm;
   }
+  float feedforward() const { return _throttle_per_rpm; }
 
   void setKp(float kp) { _kp = kp; }
   void setKi(float ki) { _ki = ki; }

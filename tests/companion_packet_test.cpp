@@ -1,5 +1,6 @@
 #include "../common/companion.h"
 #include "../common/orientation_feedback.h"
+#include "../common/radio_switches.h"
 #include <array>
 #include <cassert>
 #include <limits>
@@ -11,6 +12,7 @@ int main() {
   control.sequence = UINT32_MAX;
   control.connected = control.swa = control.swb = true;
   control.inverted = control.companion_active = true;
+  control.max_throttle = true;
   control.left_lr = 0;
   control.left_ud = 1000;
   control.right_lr = 777;
@@ -20,6 +22,7 @@ int main() {
   assert(restored.session == 123 && restored.sequence == UINT32_MAX);
   assert(restored.inverted && restored.companion_active && restored.swa &&
          restored.connected);
+  assert(restored.max_throttle);
   assert(restored.left_lr == 0 && restored.left_ud == 1000 &&
          restored.right_lr == 777);
   assert(!restored.deserialize(buffer.data(),
@@ -27,8 +30,14 @@ int main() {
   buffer[2] = 1;
   assert(!restored.deserialize(buffer.data(), n));
   buffer[2] = 2;
+  assert(!restored.deserialize(buffer.data(), n)); // Previous control version.
+  buffer[2] = 3;
+  buffer[21] = 2;
+  assert(!restored.deserialize(buffer.data(), n)); // Unknown mode flags.
+  buffer[21] = 0;
   buffer[4] = 0x80;
   assert(restored.deserialize(buffer.data(), n));
+  assert(!restored.max_throttle);
   assert(restored.orientation_request == 64 && !restored.companion_active);
 
   TelemetryPacket telemetry{};
@@ -37,6 +46,7 @@ int main() {
   telemetry.throttle = .375f;
   telemetry.rssi_dbm = -77;
   telemetry.inverted = telemetry.companion_active = true;
+  telemetry.max_throttle = true;
   telemetry.heading_rad = 6.1f;
   telemetry.heading_error_rad = -.07f;
   telemetry.micros_timestamp = UINT32_MAX;
@@ -48,6 +58,7 @@ int main() {
   assert(got.deserialize(buffer.data(), size));
   assert(got.rpm == telemetry.rpm && got.throttle == telemetry.throttle);
   assert(got.rssi_dbm == -77 && got.inverted && got.companion_active);
+  assert(got.max_throttle);
   assert(got.heading_rad == telemetry.heading_rad &&
          got.heading_error_rad == telemetry.heading_error_rad);
   assert(got.tx_failures == UINT32_MAX && got.control_age_ms == 87);
@@ -71,6 +82,19 @@ int main() {
   assert(fresh.accept(control, now + 150, now + 150));
 
   CompanionControl companion;
+  MaxThrottleSwitch swc;
+  swc.observe(1500, true);
+  assert(!swc.active());
+  swc.observe(2000, true);
+  assert(swc.active());
+  for (auto value : {1500, 1000, 0, 2100})
+    swc.observe(value, false);
+  swc.observe(1500, true);
+  swc.observe(0, true);
+  swc.observe(2100, true);
+  assert(swc.active());
+  swc.observe(1000, true);
+  assert(!swc.active());
   control.left_lr = 250;
   control.left_ud = 800;
   control.right_ud = 700;

@@ -40,7 +40,7 @@ public:
             "\"rssi_dbm\":%d,\"control_age_ms\":%u,\"control_sequence\":%lu,"
             "\"connection_state\":%u,"
             "\"rpm_status\":%u,\"heading_status\":%u,\"inverted\":%u,"
-            "\"companion_active\":%u,"
+            "\"companion_active\":%u,\"max_throttle\":%u,"
             "\"controller_connected\":%u,\"spin_enabled\":%u,\"rx_dropped\":%"
             "lu,\"rssi_dropped\":%lu,"
             "\"robot_tx_failures\":%lu,\"tx_attempts\":%lu,\"tx_completed\":%"
@@ -56,7 +56,8 @@ public:
             static_cast<unsigned long>(p.control_sequence),
             unsigned(p.connection_state), unsigned(p.rpm_status),
             unsigned(p.heading_status), unsigned(p.inverted),
-            unsigned(p.companion_active), unsigned(p.controller_connected),
+            unsigned(p.companion_active), unsigned(p.max_throttle),
+            unsigned(p.controller_connected),
             unsigned(p.spin_enabled), static_cast<unsigned long>(p.rx_dropped),
             static_cast<unsigned long>(p.rssi_dropped),
             static_cast<unsigned long>(p.tx_failures),

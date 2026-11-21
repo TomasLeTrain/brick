@@ -51,6 +51,7 @@ struct TelemetryPacket {
   uint8_t connection_state = 0, rpm_status = 0, heading_status = 0;
   bool inverted = false, companion_active = false, controller_connected = false;
   bool spin_enabled = false;
+  bool max_throttle = false;
   int16_t rssi_dbm = -128;
   uint16_t control_age_ms = UINT16_MAX;
   uint32_t control_sequence = 0;
@@ -71,7 +72,8 @@ struct TelemetryPacket {
     p[53] = rpm_status;
     p[54] = heading_status;
     p[55] = uint8_t(inverted) | (uint8_t(companion_active) << 1) |
-            (uint8_t(controller_connected) << 2) | (uint8_t(spin_enabled) << 3);
+            (uint8_t(controller_connected) << 2) | (uint8_t(spin_enabled) << 3) |
+            (uint8_t(max_throttle) << 4);
     p[56] = uint16_t(rssi_dbm);
     p[57] = uint16_t(rssi_dbm) >> 8;
     p[58] = control_age_ms;
@@ -80,7 +82,7 @@ struct TelemetryPacket {
     return expected_packet_size();
   }
   bool deserialize(const uint8_t *p, size_t n) {
-    if (!PacketWire::header(p, n, 2, expected_packet_size()) || (p[55] & 0xf0))
+    if (!PacketWire::header(p, n, 2, expected_packet_size()) || (p[55] & 0xe0))
       return false;
     float values[8];
     for (int i = 0; i < 8; ++i) {
@@ -107,6 +109,7 @@ struct TelemetryPacket {
     companion_active = p[55] & 2;
     controller_connected = p[55] & 4;
     spin_enabled = p[55] & 8;
+    max_throttle = p[55] & 16;
     const uint16_t signed_rssi = uint16_t(p[56]) | (uint16_t(p[57]) << 8);
     rssi_dbm = signed_rssi < 32768 ? signed_rssi : int32_t(signed_rssi) - 65536;
     control_age_ms = uint16_t(p[58]) | (uint16_t(p[59]) << 8);
@@ -120,12 +123,13 @@ struct ThrottlePacket {
   uint16_t knob_left = 0, knob_right = 0;
   bool connected = false, swa = false, swb = false;
   bool inverted = false, companion_active = false;
+  bool max_throttle = false;
   uint32_t session = 0, sequence = 0;
   uint8_t orientation_request =
       0; // Seven-bit action revision, repeated over RF.
-  static constexpr size_t expected_packet_size() { return 21; }
+  static constexpr size_t expected_packet_size() { return 22; }
   size_t serialize(uint8_t *p) const {
-    PacketWire::header(p, 1, 2);
+    PacketWire::header(p, 1, 3);
     p[4] = uint8_t(companion_active) | ((orientation_request & 127) << 1);
     PacketWire::u32(p + 5, session);
     PacketWire::u32(p + 9, sequence);
@@ -140,10 +144,11 @@ struct ThrottlePacket {
     packed |= uint64_t(inverted) << 63;
     for (int i = 0; i < 8; ++i)
       p[13 + i] = packed >> (8 * i);
+    p[21] = uint8_t(max_throttle);
     return expected_packet_size();
   }
   bool deserialize(const uint8_t *p, size_t n) {
-    if (!PacketWire::header(p, n, 1, expected_packet_size(), 2))
+    if (!PacketWire::header(p, n, 1, expected_packet_size(), 3) || (p[21] & 0xfe))
       return false;
     uint64_t packed = 0;
     for (int i = 0; i < 8; ++i)
@@ -164,6 +169,7 @@ struct ThrottlePacket {
     swa = (packed >> 61) & 1;
     swb = (packed >> 62) & 1;
     inverted = packed >> 63;
+    max_throttle = p[21] & 1;
     companion_active = p[4] & 1;
     orientation_request = p[4] >> 1;
     session = PacketWire::u32(p + 5);

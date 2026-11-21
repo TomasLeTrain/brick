@@ -89,12 +89,10 @@ void Robot::general_update() {
 
   const auto &config = *melt.get_config();
   const float requested_speed = throttle_packet->left_ud / 1000.0f;
-  const float target_rpm = requested_speed * config.max_target_rpm;
   const float spin_throttle =
       connected == ConnectionState::Ready &&
               requested_speed >= config.target_rpm_control_deadzone
-          ? std::min(target_rpm * RPM_THROTTLE_FEEDFORWARD,
-                     config.melt_max_throttle_magnitude)
+          ? melt.spin_feedforward(requested_speed, throttle_packet->max_throttle)
           : 0;
   const float steady_rpm = spin_throttle / RPM_THROTTLE_FEEDFORWARD;
   const float command_x = (throttle_packet->right_ud / 1000.f - .5f) * 2;
@@ -165,6 +163,7 @@ void Robot::general_update() {
     melt_input->vy = vy;
     melt_input->turn_control = turn_control;
     melt_input->companion_heading = throttle_packet->companion_active;
+    melt_input->max_throttle = throttle_packet->max_throttle;
     melt_input->target_rpm_control = target_rpm_control;
     // melt_input->led_shift_amount = led_shift_amount;
     melt_input->led_shift_amount = LED_SHIFT;
@@ -213,6 +212,7 @@ void Robot::general_update() {
   telemetry_packet.companion_active = throttle_packet->companion_active;
   telemetry_packet.controller_connected = throttle_packet->connected;
   telemetry_packet.spin_enabled = throttle_packet->swa;
+  telemetry_packet.max_throttle = throttle_packet->max_throttle;
   telemetry_packet.rssi_dbm = comms.last_rssi_dbm();
   telemetry_packet.control_age_ms = comms.control_age_ms();
   telemetry_packet.control_sequence = throttle_packet->sequence;

@@ -5,6 +5,16 @@
 #include <cmath>
 #include <math.h>
 
+float Melt::spin_feedforward(float speed, bool max_throttle) const {
+  if (!std::isfinite(speed) || speed < config.target_rpm_control_deadzone)
+    return 0;
+  speed = std::clamp(speed, 0.f, 1.f);
+  return max_throttle
+             ? speed
+             : std::min(speed * config.max_target_rpm * throtte_pid.feedforward(),
+                        config.melt_max_throttle_magnitude);
+}
+
 // recalculates all values dependent on input
 // call after changing any inputs
 void Melt::general_update() {
@@ -69,10 +79,10 @@ void Melt::general_update() {
       throtte_pid.setTargetRPM(input.target_rpm_control *
                                config.max_target_rpm);
 
-      base_spin_power = throtte_pid.update(input.rpm);
-
-      base_spin_power =
-          std::min(base_spin_power, config.melt_max_throttle_magnitude);
+      base_spin_power = input.max_throttle
+                            ? spin_feedforward(input.target_rpm_control, true)
+                            : std::clamp(throtte_pid.update(input.rpm), 0.f,
+                                         config.melt_max_throttle_magnitude);
     } else {
       base_spin_power = 0;
     }
@@ -241,8 +251,8 @@ void Melt::fast_update_melt(float current_theta) {
   left_throttle += linear_power;
   right_throttle -= linear_power;
 
-  output.left_power = left_throttle;
-  output.right_power = right_throttle;
+  output.left_power = std::clamp(left_throttle, -1.f, 1.f);
+  output.right_power = std::clamp(right_throttle, -1.f, 1.f);
 }
 
 void Melt::led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],

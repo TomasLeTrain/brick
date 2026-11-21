@@ -40,6 +40,7 @@ struct MeltInput {
 
   // Companion input has already passed the browser deadzone.
   bool companion_heading = false;
+  bool max_throttle = false;
 };
 
 struct MeltOutput {
@@ -117,6 +118,8 @@ public:
   PID *get_throtte_pid() { return &throtte_pid; }
   MeltConfig *get_config() { return &config; }
   MeltInput *get_input() { return &input; }
+  // Shared with logging and the estimator's feedforward hint.
+  float spin_feedforward(float speed, bool max_throttle) const;
   const MeltOutput *get_output() { return &output; }
   void set_phase_reference(uint32_t timestamp_us, float phase_rad, float rpm) {
     heading.publish(timestamp_us, phase_rad, rpm);

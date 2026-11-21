@@ -38,6 +38,7 @@ int main() {
   TelemetryPacket p;
   p.rpm = 2175;
   p.rssi_hz = 900;
+  p.max_throttle = true;
   console.receive(p);
   console.update(link, false);
   assert(console.printing());
@@ -85,4 +86,5 @@ int main() {
   assert(output.find(std::string(RunDump::csv_header)) != std::string::npos);
   assert(output.find("\"rpm\":2175.00") != std::string::npos);
   assert(output.find("a_x") == std::string::npos);
+  assert(output.find("\"max_throttle\":1") != std::string::npos);
 }

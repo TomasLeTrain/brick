@@ -1,6 +1,7 @@
 #include "../common/dump_command.h"
 #include "../common/packets.h"
 #include "../common/radio_config.h"
+#include "../common/radio_switches.h"
 #include "DumpReceiver.h"
 #include "IBusBM.h"
 #include "NowPair.h"
@@ -17,6 +18,7 @@ IBusBM IBus;
 DumpReceiver dump_receiver;
 SenderConsole console;
 uint32_t control_session = 0, control_sequence = 0;
+MaxThrottleSwitch max_throttle_switch;
 
 void connectionChanged(bool connected, void *) {
   console.status(connected ? "Slave connected" : "Slave disconnected");
@@ -197,6 +199,8 @@ void sendThrottle() {
   console.companion.observe_radio_orientation(
       swd_channel > 1500,
       packet.connected && swd_channel >= 1000 && swd_channel <= 2000);
+  max_throttle_switch.observe(IBus.readChannel(8), packet.connected);
+  packet.max_throttle = max_throttle_switch.active();
   console.companion.apply(packet, millis());
 
   uint8_t data_buffer[NowPair::MAX_PAYLOAD];

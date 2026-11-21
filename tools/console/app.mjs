@@ -503,6 +503,7 @@ function updateDashboard() {
           ][p.connection_state] || p.connection_state,
         "Heading owner": p.companion_active ? "Companion" : "Radio",
         Orientation: p.inverted ? "Inverted" : "Upright",
+        "Throttle mode": p.max_throttle ? "Full motor" : "3300 RPM feedforward",
         "Control age": `${p.control_age_ms} ms`,
         "RX queue drops": p.rx_dropped,
         "RSSI queue drops": p.rssi_dropped,
