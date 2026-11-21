@@ -51,8 +51,10 @@ accelerometer. Version-5 captures reuse its storage slots for heading diagnostic
 `long_rpm`, `throttle`, and `rssi_hz`. An RPM of zero means the signal has
 not acquired a reliable period or has lost it.
 
-The estimator retains about 406 ms of RSSI on a 1 ms grid and requires at least
-500 delivered packets/sec across that history. It acquires a period using a
+The estimator retains about 406 ms of RSSI on a 1 ms grid. It requires at least
+200 delivered packets/sec and **eight real packets per detected rotation**
+across that history (400 packets/sec at 3000 RPM). Interpolation does not count
+as additional packets. It acquires a period using a
 250 ms comparison window and three agreeing analyses spaced about 50 ms apart.
 Once acquired, it searches near the current period every 10 ms of received
 data. The tracking comparison window is three periods, bounded to 60–250 ms.
@@ -62,6 +64,23 @@ windows enables a 300 ms transient mode with a two-period window bounded to
 50 ms intervals. Short-window confidence controls acceptance. A brief invalid
 tracking result can hold the previous RPM for up to 150 ms, while a packet
 outage resets it after 50 ms.
+
+Gaps longer than 8 ms remain masked. Correlation needs at least half the span
+and half the comparison pairs, with a minimum of 32 valid pairs per lag.
+This tolerates moderate burst loss without inventing values across the gaps.
+An undersampled selected fundamental is rejected rather than replaced by a
+slower repeat that happens to fit the packet-rate limit. The supported period
+range is unchanged (roughly 400–3300 RPM); full motor throttle can exceed it.
+
+`logs/logs22.csv` recorded zero RPM throughout: 329 of 359 state updates reported
+low packet rate and 28 reported missing data. Its roughly 440 delivered samples/s
+failed the former fixed 500 Hz cutoff, while gaps over 8 ms cover about 26% of
+the capture and defeated the former 80% coverage requirement. The revised replay
+recovers signal-supported estimates even without a feedforward hint, with some
+remaining dropouts. The log has no independent RPM truth. It also shows no RX or
+RSSI queue drops, so it does not identify why packet delivery became sparse.
+New captures and the on-device sparse benchmark are needed to assess RF loss
+and estimator CPU cost together on hardware.
 
 Global peak selection prefers the earliest credible period. Normally its score
 must be within 0.08 of the strongest peak and at least 0.55. An earlier peak
@@ -308,6 +327,11 @@ mean and maximum combined RPM/heading sample/update/analysis times, an estimated
 simulated packet rate, and free heap and stack bytes. The matches fraction
 counts post-warm-up estimates within 2.5% of the expected RPM. Sample generation,
 serial output and deliberate yields are outside the timed estimator calls.
+
+Send `s` to benchmark 1200/2400/3000 RPM with a 600-packet/s simulated sender,
+normal simulated drops, and recurring 30 ms outages every 120 ms. This exercises
+the sparse-data correlation path and reports delivered sample rate alongside
+timing and accuracy. No motors are initialized by this sketch.
 This sketch initializes the estimator and serial port. The robot's live dumps
 include `estimator_us` to measure combined update time with normal robot/Wi-Fi activity.
 

@@ -268,7 +268,7 @@ export function correlationAt(rows, index) {
       stw += t * v;
     }
   });
-  if (count < Math.floor(span * 0.8)) return result;
+  if (count < Math.floor(span / 2)) return result;
   const slope = (stw - (st * sw) / count) / (stt - (st * st) / count);
   w.forEach((v, i) => {
     w[i] = v - slope * (i - (span - 1) / 2);
@@ -293,7 +293,7 @@ export function correlationAt(rows, index) {
     }
     const vx = xx - (sx * sx) / count,
       vy = yy - (sy * sy) / count;
-    if (count >= Math.floor(n * 0.8) && vx >= count && vy >= count)
+    if (count >= Math.max(32, Math.floor(n / 2)) && vx >= count && vy >= count)
       result[lag] = (xy - (sx * sy) / count) / Math.sqrt(vx * vy);
   }
   return result;

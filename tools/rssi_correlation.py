@@ -63,7 +63,7 @@ def correlation_curve(grid, samples=250, first=9, last=155):
         return result
     valid = np.isfinite(window)
     available = np.count_nonzero(valid)
-    if available < span * 4 // 5:
+    if available < span // 2:
         return result
     time = np.arange(span, dtype=np.float32) - np.float32((span - 1) / 2)
     window += np.float32(64)
@@ -78,7 +78,7 @@ def correlation_curve(grid, samples=250, first=9, last=155):
     for lag in range(first - 1, last + 2):
         paired = valid[ref_start:] & valid[ref_start - lag:span - lag]
         count = np.count_nonzero(paired)
-        if count < samples * 4 // 5:
+        if count < max(32, samples // 2):
             continue
         x = window[ref_start:][paired]
         y = window[ref_start - lag:span - lag][paired]

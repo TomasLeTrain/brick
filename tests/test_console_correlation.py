@@ -20,7 +20,7 @@ import {parseCsv,correlationAt} from './tools/console/core.mjs';
 const rows=parseCsv(fs.readFileSync(process.argv[1],'utf8'));
 console.log(JSON.stringify(JSON.parse(process.argv[2]).map(i=>correlationAt(rows,i))));
 """
-        for name in ('log18.csv', 'log19.csv', 'log20.csv'):
+        for name in ('log18.csv', 'log19.csv', 'log20.csv', 'logs22.csv'):
             path = ROOT/'logs'/name
             rows = plot_dump.load(path)[0].rows
             states = [i for i, row in enumerate(rows) if row['kind'] == 2]
