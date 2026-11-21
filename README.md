@@ -10,7 +10,9 @@ python3 -m http.server 8000 --bind 127.0.0.1 --directory tools/console
 
 Open <http://localhost:8000> in desktop Chrome/Chromium or Edge, connect the
 sender by USB, and select a Joy-Con/gamepad exposed by your OS. The second pilot
-can take over heading with a 150 ms timeout back to the main radio. The page also
+takes over heading by default when connected and focused, with a 150 ms timeout
+back to the main radio. Axis and button mappings are remembered per controller.
+The page also
 provides absolute Upright/Inverted actions with a 300 ms selected-face flash,
 live telemetry, log commands, CSV copy/download,
 and a run inspector with locally reconstructed correlation curves. Throttle,

@@ -19,7 +19,7 @@ let commands = [],
   pendingControl = null,
   session = 1,
   sequence = 0,
-  armed = false;
+  armed = true;
 let selectedPad = "",
   padSignature = "",
   buttonsBefore = [],
@@ -56,11 +56,11 @@ function refreshConnection() {
     .querySelectorAll("[data-command], #sendCommand")
     .forEach((b) => (b.disabled = !port));
   $("arm").textContent = armed
-    ? "Release heading to radio"
+    ? "Disable companion heading"
     : "Enable companion heading";
   $("arm").classList.toggle("danger", armed);
   $("ownership").textContent = armed
-    ? "Companion enabled. Missing controller, focus, or a 150 ms lease timeout returns heading to the radio."
+    ? "Enabled by default. Connected, focused gamepad input takes heading; loss of focus, controller, or USB returns it to the radio. Input resumes automatically when available."
     : "Radio heading owns control. A 150 ms timeout returns it to the radio.";
   const requested = orientation < 0 ? latest?.sender_inverted : orientation;
   for (const [id, value] of [
@@ -158,7 +158,6 @@ function pump() {
     .catch((error) => {
       if (port) {
         appendTerminal(`# Serial write failed: ${error.message}`);
-        armed = false;
         void disconnectSerial();
       }
     })
@@ -203,7 +202,6 @@ async function connectSerial() {
     reader = opened.readable.getReader();
     session = crypto.getRandomValues(new Uint32Array(1))[0] || 1;
     sequence = 0;
-    armed = false;
     orientation = -1;
     pendingOrientation = null;
     orientationAction = 0;
@@ -213,7 +211,7 @@ async function connectSerial() {
     pendingControl = null;
     refreshConnection();
     notice(
-      "USB connected. Select your controller, verify its mapping, then enable companion heading.",
+      "USB connected. Companion heading is enabled by default; your saved controller mapping is restored. Upright/Inverted buttons also work with heading disabled.",
     );
     readTask = (async () => {
       const decoder = new TextDecoder(),
@@ -250,7 +248,6 @@ async function disconnectSerial() {
   const opened = port,
     oldReader = reader,
     oldWriter = writer;
-  armed = false;
   pendingControl = null;
   commands = [];
   port = null;
@@ -306,6 +303,10 @@ function refreshGamepads() {
   if (signature !== padSignature) {
     padSignature = signature;
     const prior = selectedPad;
+    let remembered = "";
+    try {
+      remembered = localStorage.getItem("brick-controller-id") || "";
+    } catch {}
     $("gamepad").replaceChildren();
     for (const pad of pads)
       $("gamepad").add(
@@ -314,10 +315,11 @@ function refreshGamepads() {
     if (!pads.length) $("gamepad").add(new Option("No gamepad detected", ""));
     selectedPad = pads.some((p) => String(p.index) === prior)
       ? prior
-      : String(pads[0]?.index ?? "");
+      : String(
+          pads.find((p) => p.id === remembered)?.index ?? pads[0]?.index ?? "",
+        );
     $("gamepad").value = selectedPad;
-    armed = false;
-    buttonsBefore = [];
+    buttonsBefore = getPad()?.buttons.map((b) => b.pressed) || [];
     configureMappings();
     queueControl(true);
     refreshConnection();
@@ -335,7 +337,7 @@ function refreshGamepads() {
         .join(", ") || "none"
     }`;
   const down = pad.buttons.map((b) => b.pressed);
-  if (armed && !document.hidden && document.hasFocus()) {
+  if (port && !document.hidden && document.hasFocus()) {
     const up = Number($("uprightButton").value),
       downButton = Number($("invertedButton").value);
     if (
@@ -366,7 +368,13 @@ function configureMappings() {
   const pad = getPad();
   let saved = {};
   try {
-    saved = JSON.parse(localStorage.getItem("brick-mapping") || "{}");
+    const profile = pad
+      ? localStorage.getItem("brick-mapping:" + pad.id)
+      : null;
+    saved = JSON.parse(
+      profile || localStorage.getItem("brick-mapping") || "{}",
+    );
+    if (!saved || typeof saved !== "object") saved = {};
   } catch {}
   for (const id of [
     "axis",
@@ -423,11 +431,16 @@ function saveMapping() {
   ];
   try {
     localStorage.setItem(
-      "brick-mapping",
+      getPad() ? "brick-mapping:" + getPad().id : "brick-mapping",
       JSON.stringify(Object.fromEntries(ids.map((id) => [id, $(id).value]))),
     );
-  } catch {}
-  armed = false;
+    if (getPad()) localStorage.setItem("brick-controller-id", getPad().id);
+  } catch {
+    notice(
+      "Browser storage is blocked; controller settings cannot be remembered.",
+      true,
+    );
+  }
   queueControl(true);
   refreshConnection();
 }
@@ -746,9 +759,11 @@ $("upright").onclick = () => selectOrientation(0);
 $("inverted").onclick = () => selectOrientation(1);
 $("gamepad").onchange = () => {
   selectedPad = $("gamepad").value;
-  armed = false;
-  buttonsBefore = [];
+  buttonsBefore = getPad()?.buttons.map((b) => b.pressed) || [];
   configureMappings();
+  try {
+    if (getPad()) localStorage.setItem("brick-controller-id", getPad().id);
+  } catch {}
   queueControl(true);
   refreshConnection();
 };
@@ -831,13 +846,17 @@ $("file").onchange = async () => {
   }
 };
 function release() {
-  armed = false;
   queueControl(true);
   refreshConnection();
 }
+function baselineButtons() {
+  buttonsBefore = getPad()?.buttons.map((b) => b.pressed) || [];
+}
 window.addEventListener("blur", release);
+window.addEventListener("focus", baselineButtons);
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) release();
+  else baselineButtons();
 });
 window.addEventListener("pagehide", release);
 setInterval(() => {

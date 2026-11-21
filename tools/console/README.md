@@ -24,7 +24,9 @@ Raw Joy-Con axis/button numbers vary by OS. Check the live input preview first.
    Click **Connect sender**, select its USB serial port, and wait for telemetry.
    Opening USB may reset some boards; wait for the link and main radio to recover.
 5. Press a controller button if the browser hasn't exposed it yet. Select the
-   heading axis/direction/gain/deadzone, then click **Enable companion heading**.
+   heading axis/direction/gain/deadzone. Companion heading is **enabled by default**;
+   use **Disable companion heading** to leave heading on the radio. Settings restore
+   per controller on subsequent visits, including its axis, direction and gain.
    The stick commands a heading **turn rate**, matching the existing radio turn
    input. It does not command an absolute compass heading.
 
@@ -33,16 +35,24 @@ arming, and its existing failsafe detection. The computer cannot enable the
 motors or raise throttle. Heading has one owner: while enabled, the companion
 replaces the radio's turn channel; it does not add a second correction.
 
-A **150 ms** serial lease expires back to radio heading. Releasing the enable
-button in the page, losing window focus, hiding the tab, disconnecting the
-controller, or losing serial releases heading. Gamepad reconnection requires an
-explicit re-enable. You may configure a hold-to-steer button as well. Leave the
-page focused for the second pilot. Mapping changes release heading; only mapping
-preferences are saved locally, never control enable state.
+A **150 ms** serial lease expires back to radio heading. Heading defaults to
+**enabled** on each page load and takes over when serial, a selected gamepad, and
+page focus are available. Losing focus, hiding the tab, disconnecting the
+controller, or losing serial releases the lease; it resumes automatically when
+input becomes available again. **Disable companion heading** keeps heading on the
+radio until explicitly enabled again during that page session. You may configure
+a hold-to-steer button as well. Leave the page focused for the second pilot.
+
+Axis, direction, gain, deadzone, button mappings and controller choice are saved
+in this browser per controller ID, so reconnecting at a different gamepad index
+still restores the mapping. Existing global settings are used as a migration
+fallback. Use the same localhost origin/port between visits; private browsing or
+blocked/cleared browser storage cannot retain settings. A storage error is shown
+instead of silently claiming settings were saved.
 
 Button mappings are configurable: Upright defaults to button 0 and Inverted to
-button 1, while capture/export are disabled until assigned. Actions trigger once per press and only when
-companion control is enabled. The on-screen orientation/log buttons also work
+button 1, while capture/export are disabled until assigned. Actions trigger once per press while USB is connected and the page is focused,
+**independently of heading enable**. The on-screen orientation/log buttons also work
 without a gamepad. There are no external scripts, uploads, or cloud services.
 
 ## Orientation and separate LED faces

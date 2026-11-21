@@ -78,14 +78,16 @@
           ><label>Capture log<select id="captureButton"></select></label
           ><label>Export log<select id="exportButton"></select></label>
           <p class="small muted">
-            Buttons act once per press while companion control is enabled.
+            Buttons act once per press while USB is connected and this page is
+            focused, even with companion heading disabled.
           </p>
         </details>
         <button class="primary wide" id="arm" disabled>
-          Enable companion heading
+          Disable companion heading
         </button>
         <p class="small muted" id="ownership">
-          Radio heading owns control. A 150 ms timeout returns it to the radio.
+          Companion heading defaults to enabled. A 150 ms timeout returns
+          heading to the radio when input is unavailable.
         </p>
         <div class="divider"></div>
         <div class="eyebrow">ROBOT ORIENTATION</div>

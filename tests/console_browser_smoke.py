@@ -18,6 +18,8 @@ class QuietHandler(SimpleHTTPRequestHandler):
 
 MOCK = r"""
 window.sent = [];
+window.focused = true;
+Object.defineProperty(document,'hasFocus',{value:()=>window.focused});
 window.pad = {index:0,id:'Joy-Con test',connected:true,axes:[0,0],buttons:Array.from({length:16},()=>({pressed:false,value:0}))};
 Object.defineProperty(navigator,'getGamepads',{value:()=>[window.pad]});
 let incoming;
@@ -49,12 +51,27 @@ def main():
             page.locator('#captureButton').select_option('3')
             page.locator('#exportButton').select_option('4')
             page.locator('summary').click()
+            page.locator('#axis').select_option('1')
+            page.locator('#gain').evaluate("el=>el.value='65'")
+            page.locator('#gain').dispatch_event('change')
+            page.reload()
+            page.wait_for_function("document.querySelector('#gamepad').textContent.includes('Joy-Con test')")
+            page.wait_for_function("document.querySelector('#axis').value === '1'")
+            assert page.locator('#gain').input_value() == '65'
+            page.locator('summary').click()
+            assert page.locator('#captureButton').input_value() == '3'
+            page.locator('summary').click()
+            page.evaluate("window.pad.id='Other controller'")
+            page.wait_for_function("document.querySelector('#axis').value === '0'")
+            page.evaluate("window.pad.id='Joy-Con test';window.pad.index=2")
+            page.wait_for_function("document.querySelector('#axis').value === '1'")
             page.locator('#connect').click()
             page.wait_for_function("document.querySelector('#serialState').textContent === 'Sender USB connected'")
             assert not page.locator('#arm').is_disabled()
-            page.evaluate('window.pad.axes[0]=.7')
-            page.locator('#arm').click()
+            assert 'Disable companion' in page.locator('#arm').inner_text()
+            page.evaluate('window.pad.axes[1]=.7')
             page.wait_for_function("window.sent.some(s=>/^@C,1,\\d+,\\d+,[1-9]\\d*,-1,1\\n$/.test(s))")
+            page.locator('#arm').click() # Orientation buttons must work with heading disabled.
             page.evaluate('window.pad.buttons[1].pressed=true')
             page.wait_for_function("document.querySelector('#inverted').getAttribute('aria-pressed') === 'true'")
             page.wait_for_timeout(250)
@@ -71,6 +88,8 @@ def main():
             page.evaluate('window.pad.buttons[1].pressed=false;window.pad.buttons[3].pressed=true')
             page.wait_for_function("window.sent.includes('s\\n')")
             page.evaluate('window.pad.buttons[3].pressed=false')
+            assert page.evaluate("window.sent.filter(s=>s.startsWith('@C,') && s.trim().split(',')[5] !== '-1').every(s=>s.trim().endsWith(',0'))")
+            page.locator('#arm').click()
             telemetry = dict.fromkeys(['v','link','have_telemetry','rx_age_ms','rpm','target_rpm','throttle','rssi_hz',
                                        'correlation','heading_rad','heading_error_rad','rpm_age_ms','rssi_dbm','control_age_ms',
                                        'control_sequence','connection_state','rpm_status','heading_status','inverted',
@@ -84,13 +103,13 @@ def main():
             page.evaluate('text=>window.receiveText(text)', '@T '+json.dumps(telemetry)+'\n')
             page.wait_for_function("document.querySelector('#rpm').textContent.includes('2,175')")
             page.screenshot(path='/tmp/brick-console-desktop.png', full_page=True)
-            # Physical disconnect releases ownership and requires explicit re-enable.
+            # Physical disconnect releases the lease, then the enabled default resumes.
             page.evaluate('window.pad.connected=false')
-            page.wait_for_function("document.querySelector('#arm').textContent.includes('Enable companion')")
+            page.wait_for_function("document.querySelector('#arm').disabled")
             page.wait_for_function("window.sent.at(-1).trim().endsWith(',0')")
             page.evaluate('window.pad.connected=true;window.pad.buttons[3].pressed=false')
             page.wait_for_timeout(100)
-            assert 'Enable companion' in page.locator('#arm').inner_text()
+            assert 'Disable companion' in page.locator('#arm').inner_text()
             # CSV export can be copied/downloaded only once its end marker arrives.
             fields='kind,timestamp_us,received_us,rssi_dbm,target_rpm,rssi_rpm,throttle,analysis_timestamp_us,comparison_samples,min_lag,max_lag,rpm_status'
             lines=['# dump_begin generation=1 count=601',fields]
@@ -114,9 +133,10 @@ def main():
             page.locator('#file').set_input_files(ROOT/'logs/log18.csv')
             page.wait_for_function("document.querySelector('#logState').textContent.includes('2048 records')")
             # Window focus loss releases a currently enabled controller.
-            page.locator('#arm').click()
-            page.evaluate("window.dispatchEvent(new Event('blur'))")
-            page.wait_for_function("document.querySelector('#arm').textContent.includes('Enable companion')")
+            page.evaluate("window.focused=false;window.dispatchEvent(new Event('blur'))")
+            page.wait_for_function("window.sent.at(-1).trim().endsWith(',0')")
+            page.evaluate("window.focused=true;window.dispatchEvent(new Event('focus'))")
+            page.wait_for_function("window.sent.at(-1).trim().endsWith(',1')")
             page.set_viewport_size({'width':390,'height':844})
             page.screenshot(path='/tmp/brick-console-mobile.png', full_page=True)
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
@@ -125,12 +145,12 @@ def main():
             page.wait_for_function("!document.querySelector('#connect').disabled")
             page.locator('#connect').click()
             page.wait_for_function("document.querySelector('#serialState').textContent === 'Sender USB connected'")
-            assert 'Enable companion' in page.locator('#arm').inner_text()
+            assert 'Disable companion' in page.locator('#arm').inner_text()
             page.evaluate('window.endSerial()')
             page.wait_for_function("!document.querySelector('#connect').disabled")
             assert not errors, errors
             browser.close()
-            print('Browser smoke passed: serial, gamepad, independent orientation actions, capture, telemetry, CSV, disconnect, responsive layout')
+            print('Browser smoke passed: serial, gamepad, default heading, remembered mappings, independent orientation actions, capture, telemetry, CSV, disconnect, responsive layout')
     finally:
         server.shutdown()
         server.server_close()
