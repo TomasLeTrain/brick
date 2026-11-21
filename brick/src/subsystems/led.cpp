@@ -1,7 +1,10 @@
 #include "led.h"
 #include "../../config.h"
+#include "led_palette.h"
 #include <Arduino.h>
+#include <algorithm>
 #include <cstring>
+#include <soc/soc_caps.h>
 
 uint32_t colorToInt(uint8_t red, uint8_t green, uint8_t blue) {
   return red | (uint32_t(green) << 8) | (uint32_t(blue) << 16);
@@ -32,10 +35,6 @@ void color_first_n(uint8_t target_red, uint8_t target_green,
   }
 }
 
-rmt_symbol_word_t led_rmt_data[3 * NUM_LEDS * 8];
-
-uint8_t pixel_color[3 * NUM_LEDS];
-
 bool LED::init_rmt(gpio_num_t gpio) {
   rmt_tx_channel_config_t tx_chan_config = {
       .gpio_num = gpio,               // GPIO number
@@ -43,7 +42,9 @@ bool LED::init_rmt(gpio_num_t gpio) {
       .resolution_hz =
           10 * 1000 *
           1000, // 10 MHz tick resolution, i.e., 1 ticks = 100 nanosecs
-      .mem_block_symbols = 64, // memory block size, 64 * 4 = 256 Bytes
+      // One block per output: on S3, requesting 64 consumes TWO 48-symbol
+      // blocks and would leave no room for two LED outputs plus two motors.
+      .mem_block_symbols = SOC_RMT_MEM_WORDS_PER_CHANNEL,
       .trans_queue_depth =
           4, // set the number of transactions that can pend in the background
   };
@@ -78,8 +79,8 @@ void LED::cleanup() {
 
 LED::~LED() { cleanup(); }
 
-LED::LED() {
-  bool result = init_rmt(NEOPIXEL_PIN);
+LED::LED(gpio_num_t gpio) {
+  bool result = init_rmt(gpio);
 
   // cleanup on failure
   if (!result) {
@@ -133,18 +134,21 @@ void LED::leds_on_gradient(uint8_t color) {
   leds_on_rgb(red, green, 0);
 }
 
-void LED::leds_off() {
-  // set all pixels to zero
-  memset(pixel_color, 0, sizeof(pixel_color));
-  write_pixels();
-}
+void LED::leds_off() { leds_on_rgb(0, 0, 0); }
 
 void LED::leds_on_array(const uint8_t red[], const uint8_t green[],
-                        const uint8_t blue[]) {
+                        const uint8_t blue[], bool bottom_face) {
   for (size_t i = 0; i < NUM_LEDS; i++) {
-    int32_t red_val = (int(red[i]) * brightness) >> 8;
-    int32_t green_val = (int(green[i]) * brightness) >> 8;
-    int32_t blue_val = (int(blue[i]) * brightness) >> 8;
+    uint8_t r = red[i], g = green[i], b = blue[i];
+    if (bottom_face != palette_flash) {
+      const LedColor color = LedPalette::flip({r, g, b}, i == NUM_LEDS - 1);
+      r = color.red;
+      g = color.green;
+      b = color.blue;
+    }
+    int32_t red_val = (int(r) * brightness) >> 8;
+    int32_t green_val = (int(g) * brightness) >> 8;
+    int32_t blue_val = (int(b) * brightness) >> 8;
 
     // neopixels usually use GRB addressing rather than RGB
     pixel_color[i * 3 + 0] = green_val;
@@ -155,6 +159,12 @@ void LED::leds_on_array(const uint8_t red[], const uint8_t green[],
 }
 
 void LED::leds_on_rgb(uint8_t red, uint8_t green, uint8_t blue) {
+  if (palette_flash) {
+    const LedColor color = LedPalette::flip({red, green, blue});
+    red = color.red;
+    green = color.green;
+    blue = color.blue;
+  }
   // scales all values by brightness:
   // new_val = (val / 255) * brightness
   // new_val = (val * brightness) / 255

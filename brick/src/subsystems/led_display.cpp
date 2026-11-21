@@ -35,14 +35,13 @@ void LedDisplay::fast_update(float pct, uint8_t led_red[NUM_LEDS],
       mask = digit_masks[digit][pixel % 4];
   }
   for (int i = 0; i < NUM_LEDS; ++i) {
-    if (i < 8 && ((mask >> i) & 1)) {
-      led_red[NUM_LEDS - 1 - i] = 0;
-      led_green[NUM_LEDS - 1 - i] = 0;
-      led_blue[NUM_LEDS - 1 - i] = 255;
-    } else {
-      led_red[NUM_LEDS - 1 - i] = 255;
-      led_green[NUM_LEDS - 1 - i] = 255;
-      led_blue[NUM_LEDS - 1 - i] = 255;
-    }
+    // Keep the merged row reversal, but move the five glyph rows off the
+    // dedicated final pixel. Padding and unlit strokes use the background.
+    const int bit = data_pixels - 1 - i;
+    const bool lit = bit >= 0 && bit < 5 && ((mask >> bit) & 1);
+    const LedColor color = lit ? LedPalette::text : LedPalette::background;
+    led_red[i] = color.red;
+    led_green[i] = color.green;
+    led_blue[i] = color.blue;
   }
 }

@@ -35,8 +35,12 @@ struct MeltInput {
   // when melt throttle is below deadzone, tank mode is used
   bool auto_drive_type;
 
-  // whether robot is upright
+  // whether robot is upright (translation direction only)
   bool is_upright;
+
+  // Companion input has already passed the browser deadzone.
+  bool companion_heading = false;
+  bool max_throttle = false;
 };
 
 struct MeltOutput {
@@ -91,6 +95,9 @@ struct MeltConfig {
 
   float heading_led_width = 0.5f;
   float vector_led_width = 0.03f;
+  // Fraction of a full turn, centered on theta=0 independently of the text.
+  float bar_led_width = 0.3f;
+  LedColor bar_led_color{0, 0, 255};
 
   // rpm must reach above this to be considered melting
   float min_melting_rpm = 500;
@@ -111,6 +118,8 @@ public:
   PID *get_throtte_pid() { return &throtte_pid; }
   MeltConfig *get_config() { return &config; }
   MeltInput *get_input() { return &input; }
+  // Shared with logging and the estimator's feedforward hint.
+  float spin_feedforward(float speed, bool max_throttle) const;
   const MeltOutput *get_output() { return &output; }
   void set_phase_reference(uint32_t timestamp_us, float phase_rad, float rpm) {
     heading.publish(timestamp_us, phase_rad, rpm);
@@ -152,6 +161,7 @@ private:
 
   int32_t led_display_start_us, led_display_end_us;
   int32_t led_vector_start_us, led_vector_end_us;
+  int32_t led_bar_half_width_us = 0;
 
   // in range [0,1]
   float led_vector_magnitude;

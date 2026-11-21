@@ -24,11 +24,14 @@ bool NowPair::begin() {
       _timeoutMs <= _heartbeatMs || _timeoutMs >= 0x80000000UL)
     return false;
 
+  _realtimeRx = xQueueCreate(1, sizeof(RxEvent));
   _rx = xQueueCreate(12, sizeof(RxEvent));
   _rssiRx = xQueueCreate(64, sizeof(RssiSample));
   _controlTx = xQueueCreate(8, sizeof(Frame));
   _dataTx = xQueueCreate(8, sizeof(Frame));
-  if (!_rx || !_rssiRx || !_controlTx || !_dataTx) {
+  if (!_rx || !_rssiRx || !_controlTx || !_dataTx || !_realtimeRx) {
+    if (_realtimeRx)
+      vQueueDelete(_realtimeRx);
     if (_rx)
       vQueueDelete(_rx);
     if (_rssiRx)
@@ -37,7 +40,7 @@ bool NowPair::begin() {
       vQueueDelete(_controlTx);
     if (_dataTx)
       vQueueDelete(_dataTx);
-    _rx = _rssiRx = _controlTx = _dataTx = nullptr;
+    _rx = _rssiRx = _controlTx = _dataTx = _realtimeRx = nullptr;
     return false;
   }
 
@@ -52,11 +55,12 @@ bool NowPair::begin() {
     // This class exclusively owns ESP-NOW on this board.
     _receiver.store(nullptr);
     ESP_NOW.end();
+    vQueueDelete(_realtimeRx);
     vQueueDelete(_rx);
     vQueueDelete(_rssiRx);
     vQueueDelete(_controlTx);
     vQueueDelete(_dataTx);
-    _rx = _rssiRx = _controlTx = _dataTx = nullptr;
+    _rx = _rssiRx = _controlTx = _dataTx = _realtimeRx = nullptr;
     return false;
   }
   _sequence = esp_random();
@@ -72,8 +76,9 @@ void NowPair::receivePacket(const esp_now_recv_info_t *info,
   if (!self || !info || !info->src_addr || !info->des_addr || length < 0)
     return;
   const RssiSample sample =
-      info->rx_ctrl ? RssiSample{info->rx_ctrl->rssi, info->rx_ctrl->timestamp, micros()}
-                    : RssiSample{RSSI_UNAVAILABLE, 0, micros()};
+      info->rx_ctrl
+          ? RssiSample{info->rx_ctrl->rssi, info->rx_ctrl->timestamp, micros()}
+          : RssiSample{RSSI_UNAVAILABLE, 0, micros()};
   self->enqueueRx(info->src_addr, data, static_cast<size_t>(length),
                   memcmp(info->des_addr, BROADCAST_MAC, 6) == 0, sample);
 }
@@ -84,6 +89,9 @@ void NowPair::enqueueRx(const uint8_t *mac, const uint8_t *data, size_t length,
   if (!_rx || !data || length < HEADER_SIZE || length > sizeof(Frame))
     return;
 
+  if (memcmp(_expectedPeer, EMPTY_MAC, 6) != 0 &&
+      memcmp(mac, _expectedPeer, 6) != 0)
+    return;
   const auto kind = static_cast<Kind>(data[0]);
   const size_t payloadLength = data[1];
   if (length != HEADER_SIZE + payloadLength ||
@@ -102,6 +110,7 @@ void NowPair::enqueueRx(const uint8_t *mac, const uint8_t *data, size_t length,
       return;
     break;
   case Kind::Data:
+  case Kind::Realtime:
     break;
   default:
     return;
@@ -109,8 +118,8 @@ void NowPair::enqueueRx(const uint8_t *mac, const uint8_t *data, size_t length,
 
   // The peer address is immutable after bind() publishes it to this task.
   // Keep other ESP-NOW senders out of the time series, including discovery.
-  if (_collectRssi.load() && _bound.load() &&
-      memcmp(addr(), mac, 6) == 0 && sample.rssiDbm != RSSI_UNAVAILABLE &&
+  if (_collectRssi.load() && _bound.load() && memcmp(addr(), mac, 6) == 0 &&
+      sample.rssiDbm != RSSI_UNAVAILABLE &&
       xQueueSend(_rssiRx, &sample, 0) != pdTRUE)
     _droppedRssi.fetch_add(1);
   if (kind == Kind::Rssi)
@@ -122,13 +131,29 @@ void NowPair::enqueueRx(const uint8_t *mac, const uint8_t *data, size_t length,
   event.receivedAt = millis();
   event.sample = sample;
 
+  if (kind == Kind::Realtime) {
+    xQueueOverwrite(_realtimeRx, &event);
+    return;
+  }
   if (xQueueSend(_rx, &event, 0) != pdTRUE)
     _droppedRx.fetch_add(1);
 }
 
 void NowPair::onSent(bool success) {
+  if (!_txBusy.load())
+    return;
+  const uint32_t duration = micros() - _txStartedUs.load();
+  uint32_t maximum = _txMaxUs.load();
+  while (duration > maximum &&
+         !_txMaxUs.compare_exchange_weak(maximum, duration)) {
+  }
+  _txCompleted.fetch_add(1);
+  if (!success)
+    _txFailures.fetch_add(1);
   _lastTxSuccess.store(success);
   _txBusy.store(false);
+  if (_txWakeTask)
+    xTaskNotifyGive(_txWakeTask);
 }
 
 bool NowPair::bind(const uint8_t *mac) {
@@ -155,6 +180,8 @@ void NowPair::setConnected(bool value) {
 
 void NowPair::resetLink(uint32_t now) {
   _probePending = false;
+  _latestPending = false;
+  xQueueReset(_realtimeRx);
   xQueueReset(_controlTx);
   xQueueReset(_dataTx);
   _lastProbe = now - _heartbeatMs;
@@ -213,6 +240,10 @@ void NowPair::handle(const RxEvent &event) {
     }
     break;
   }
+  case Kind::Realtime:
+    if (_connected && _realtimeCallback)
+      _realtimeCallback(f.payload, f.length, event.receivedAt, _realtimeArg);
+    break;
   case Kind::Data:
     if (_connected && _dataCallback)
       _dataCallback(f.payload, f.length, event.sample.rssiDbm,
@@ -240,15 +271,32 @@ bool NowPair::sendRssiSample() {
   return xQueueSend(_dataTx, &f, 0) == pdTRUE;
 }
 
+bool NowPair::sendLatestData(const void *data, size_t length) {
+  if (!_started || !_connected || !data || !length || length > MAX_PAYLOAD)
+    return false;
+  _latest = makeFrame(Kind::Realtime);
+  _latest.length = length;
+  memcpy(_latest.payload, data, length);
+  _latestAt = millis();
+  _latestPending = true;
+  return true;
+}
+
 void NowPair::serviceTx() {
   if (_txBusy.load())
     return;
   Frame f;
-  if (xQueueReceive(_controlTx, &f, 0) != pdTRUE &&
-      xQueueReceive(_dataTx, &f, 0) != pdTRUE) {
-    if (!_streamRssi || !_connected)
-      return;
-    f = makeFrame(Kind::Rssi);
+  if (_latestPending && uint32_t(millis() - _latestAt) >= 100)
+    _latestPending = false;
+  if (xQueueReceive(_controlTx, &f, 0) != pdTRUE) {
+    if (_latestPending) {
+      f = _latest;
+      _latestPending = false;
+    } else if (xQueueReceive(_dataTx, &f, 0) != pdTRUE) {
+      if (!_streamRssi || !_connected)
+        return;
+      f = makeFrame(Kind::Rssi);
+    }
   }
 
   const bool broadcast = f.kind == Kind::Discover;
@@ -257,17 +305,20 @@ void NowPair::serviceTx() {
   // them.
   if (!broadcast && !_bound)
     return;
-  if (f.kind == Kind::Data && !_connected)
+  if ((f.kind == Kind::Data || f.kind == Kind::Realtime) && !_connected)
     return;
   if (broadcast && _connected)
     return;
   const size_t length = HEADER_SIZE + f.length;
+  _txStartedUs.store(micros());
+  _txAttempts.fetch_add(1);
   _txBusy.store(true); // callback may run before send() returns
   const size_t sent =
       broadcast
           ? _broadcaster.transmit(reinterpret_cast<const uint8_t *>(&f), length)
           : ESP_NOW_Peer::send(reinterpret_cast<const uint8_t *>(&f), length);
   if (sent != length) {
+    _txFailures.fetch_add(1);
     _lastTxSuccess.store(false);
     _txBusy.store(
         false); // immediate failure: no completion callback is expected
@@ -277,6 +328,10 @@ void NowPair::serviceTx() {
 void NowPair::update() {
   if (!_started)
     return;
+
+  RxEvent latest;
+  if (xQueueReceive(_realtimeRx, &latest, 0) == pdTRUE)
+    handle(latest);
 
   // Process the backlog present at entry. New arrivals cannot extend this pass.
   const auto pendingRx = uxQueueMessagesWaiting(_rx);
@@ -319,6 +374,7 @@ void NowPair::update() {
     if (_rssiCallback)
       _rssiCallback(sample.rssiDbm, sample.timestampUs, _rssiArg);
     if (_timedRssiCallback)
-      _timedRssiCallback(sample.rssiDbm, sample.timestampUs, sample.callbackUs, _timedRssiArg);
+      _timedRssiCallback(sample.rssiDbm, sample.timestampUs, sample.callbackUs,
+                         _timedRssiArg);
   }
 }

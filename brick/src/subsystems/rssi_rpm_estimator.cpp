@@ -7,7 +7,8 @@ namespace {
 constexpr uint32_t max_interpolation_gap_us = 8000;
 constexpr uint32_t no_samples_timeout_ms = 50;
 constexpr uint32_t analysis_interval_us = 50000;
-constexpr float min_packet_rate_hz = 500;
+constexpr float min_packet_rate_hz = 200;
+constexpr float min_packets_per_rotation = 8;
 constexpr float min_variance_db2 = 1;
 constexpr float min_correlation = 0.55f;
 constexpr float peak_tolerance = 0.08f;
@@ -277,7 +278,11 @@ RssiRpmEstimator::Result RssiRpmEstimator::analyze(
     rssi_sum += window[i];
     cross += time * window[i];
   }
-  if (available < span * 4 / 5)
+  // RF burst losses mask both sides of a pair. Requiring 80% on each side
+  // makes a usable 75%-covered signal fail almost every lag (log22). Retain
+  // holes, require half the pairs plus an absolute minimum, and separately
+  // check actual packet density before accepting the selected fundamental.
+  if (available < span / 2)
     return {0, 0, Status::MissingData};
 
   const float slope = (cross - time_sum * rssi_sum / available) /
@@ -310,7 +315,7 @@ RssiRpmEstimator::Result RssiRpmEstimator::analyze(
     }
 
     correlation[lag] = unavailable_correlation;
-    if (count < samples * 4 / 5)
+    if (count < std::max(32, samples / 2))
       continue;
     enough_pairs = true;
     energy -= sum * sum / count;
@@ -407,6 +412,11 @@ RssiRpmEstimator::Result RssiRpmEstimator::analyze(
   const float right = correlation[selected + 1];
   const float offset = 0.5f * (left - right) / (left - 2 * middle + right);
   const float rpm = 60000.0f / (selected + offset);
+  // Apply this to the chosen fundamental, not to the peak-search bounds:
+  // skipping an undersampled first peak could silently select a slower repeat.
+  // Average packet count is independent of the interpolated 1 ms grid.
+  if (rpm * min_packets_per_rotation > packet_rate_hz * 60)
+    return {0, 0, Status::LowPacketRate};
   // Correlation compares the newest N samples to a segment one period earlier.
   // For a linear speed ramp, their mean pair-midpoint is this effective epoch.
   const uint32_t delay = uint32_t(std::lround(((samples - 1) * sample_interval_us +

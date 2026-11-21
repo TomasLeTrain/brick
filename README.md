@@ -1,5 +1,37 @@
 # Brick
 
+## Companion controller and local dashboard
+
+Flash both ESPs from this revision, then run:
+
+```sh
+python3 -m http.server 8000 --bind 127.0.0.1 --directory tools/console
+```
+
+Open <http://localhost:8000> in desktop Chrome/Chromium or Edge, connect the
+sender by USB, and select a Joy-Con/gamepad exposed by your OS. The second pilot
+takes over heading by default when connected and focused, with a 150 ms timeout
+back to the main radio. Axis and button mappings are remembered per controller.
+Heading sensitivity defaults to 25% and is adjustable from 1–100%.
+The page also provides absolute Upright/Inverted actions with a 300 ms selected-face flash,
+live telemetry, log commands, CSV copy/download,
+and a run inspector with locally reconstructed correlation curves. Throttle,
+translation, and arming remain on the physical radio.
+Changing the main radio's SWD also selects orientation (0 upright, 1 inverted);
+leaving it unchanged preserves Joy-Con selections.
+SWC (iBus channel 8) selects the throttle range: 1000 retains the 3300 RPM
+feedforward limit, 2000 allows 1.0 motor throttle at full stick, and the middle
+retains the previous mode. Update both ESPs for version-3 control packets.
+
+Top/bottom LED data use GPIO 1/4 with fixed white/blue and blue/white palettes.
+Orientation selection only flashes the selected face for 300 ms before restoring
+its original scheme. A solid 0.3-turn bar marks theta=0; the last pixel shows a hue
+wheel. Rewire the bottom data line separately, or change those pins in
+`brick/config.h`. Control/telemetry
+packets are versioned and require updating **both** ESPs; persisted dump format
+remains v5. See [setup, mappings, wiring, and RF notes](tools/console/README.md).
+
+
 ## RSSI RPM estimation and delay-compensated heading
 
 Flash the robot with `brick` and the controller ESP with `sender_test`. The
@@ -19,8 +51,10 @@ accelerometer. Version-5 captures reuse its storage slots for heading diagnostic
 `long_rpm`, `throttle`, and `rssi_hz`. An RPM of zero means the signal has
 not acquired a reliable period or has lost it.
 
-The estimator retains about 406 ms of RSSI on a 1 ms grid and requires at least
-500 delivered packets/sec across that history. It acquires a period using a
+The estimator retains about 406 ms of RSSI on a 1 ms grid. It requires at least
+200 delivered packets/sec and **eight real packets per detected rotation**
+across that history (400 packets/sec at 3000 RPM). Interpolation does not count
+as additional packets. It acquires a period using a
 250 ms comparison window and three agreeing analyses spaced about 50 ms apart.
 Once acquired, it searches near the current period every 10 ms of received
 data. The tracking comparison window is three periods, bounded to 60–250 ms.
@@ -30,6 +64,23 @@ windows enables a 300 ms transient mode with a two-period window bounded to
 50 ms intervals. Short-window confidence controls acceptance. A brief invalid
 tracking result can hold the previous RPM for up to 150 ms, while a packet
 outage resets it after 50 ms.
+
+Gaps longer than 8 ms remain masked. Correlation needs at least half the span
+and half the comparison pairs, with a minimum of 32 valid pairs per lag.
+This tolerates moderate burst loss without inventing values across the gaps.
+An undersampled selected fundamental is rejected rather than replaced by a
+slower repeat that happens to fit the packet-rate limit. The supported period
+range is unchanged (roughly 400–3300 RPM); full motor throttle can exceed it.
+
+`logs/logs22.csv` recorded zero RPM throughout: 329 of 359 state updates reported
+low packet rate and 28 reported missing data. Its roughly 440 delivered samples/s
+failed the former fixed 500 Hz cutoff, while gaps over 8 ms cover about 26% of
+the capture and defeated the former 80% coverage requirement. The revised replay
+recovers signal-supported estimates even without a feedforward hint, with some
+remaining dropouts. The log has no independent RPM truth. It also shows no RX or
+RSSI queue drops, so it does not identify why packet delivery became sparse.
+New captures and the on-device sparse benchmark are needed to assess RF loss
+and estimator CPU cost together on hardware.
 
 Global peak selection prefers the earliest credible period. Normally its score
 must be within 0.08 of the strongest peak and at least 0.55. An earlier peak
@@ -232,6 +283,24 @@ c++ -std=c++17 -O2 -Itests/host tests/now_pair_timing_test.cpp \
 /tmp/brick-timing-test
 c++ -std=c++17 -O2 tests/run_dump_phase_test.cpp -o /tmp/brick-phase-dump-test
 /tmp/brick-phase-dump-test
+c++ -std=c++17 -O2 tests/companion_packet_test.cpp -o /tmp/brick-companion-test
+/tmp/brick-companion-test
+c++ -std=c++17 -O2 -Itests/host tests/radio_resilience_test.cpp \
+    brick/src/lib/NowPair.cpp -o /tmp/brick-radio-test
+/tmp/brick-radio-test
+c++ -std=c++17 -O2 -Itests/host tests/dual_led_test.cpp \
+    brick/src/subsystems/led.cpp -o /tmp/brick-dual-led-test
+/tmp/brick-dual-led-test
+c++ -std=c++17 -O2 -Itests/host tests/sender_console_test.cpp \
+    brick/src/lib/NowPair.cpp -o /tmp/brick-sender-console-test
+/tmp/brick-sender-console-test
+c++ -std=c++17 -O2 -Itests/host -Ibrick tests/control_timeout_test.cpp \
+    brick/src/subsystems/comms.cpp brick/src/subsystems/run_recorder.cpp \
+    brick/src/subsystems/rssi_rpm_estimator.cpp brick/src/subsystems/rpm_heading_tracker.cpp \
+    brick/src/lib/NowPair.cpp -o /tmp/brick-control-timeout-test
+/tmp/brick-control-timeout-test
+node --test tests/console_test.mjs
+python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
 The communication regression compiles the real Comms, recorder and NowPair
@@ -258,6 +327,11 @@ mean and maximum combined RPM/heading sample/update/analysis times, an estimated
 simulated packet rate, and free heap and stack bytes. The matches fraction
 counts post-warm-up estimates within 2.5% of the expected RPM. Sample generation,
 serial output and deliberate yields are outside the timed estimator calls.
+
+Send `s` to benchmark 1200/2400/3000 RPM with a 600-packet/s simulated sender,
+normal simulated drops, and recurring 30 ms outages every 120 ms. This exercises
+the sparse-data correlation path and reports delivered sample rate alongside
+timing and accuracy. No motors are initialized by this sketch.
 This sketch initializes the estimator and serial port. The robot's live dumps
 include `estimator_us` to measure combined update time with normal robot/Wi-Fi activity.
 

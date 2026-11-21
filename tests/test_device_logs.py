@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 import math
+import random
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -114,6 +115,43 @@ class DeviceLogTests(unittest.TestCase):
         output = self.replay(source)
         self.assertGreater(output[90][0], 1900)
         self.assertTrue(all(rpm == 0 for rpm, _ in output[150:]))
+
+    def test_log22_recovers_despite_packet_loss_without_a_hint(self):
+        for hint in (True, False):
+            with self.subTest(hint=hint):
+                states, output = self.replay_capture("logs22.csv", hint=hint)
+                self.assertTrue(all(row["rssi_rpm"] == 0 for _, row in states))
+                # Most recorded updates were rejected by the old 500 Hz gate.
+                self.assertGreater(sum(row["rpm_status"] == 1 for _, row in states), 300)
+                settled = [rpm for (t, _), (rpm, _) in zip(states, output) if t >= .6]
+                self.assertGreater(sum(rpm > 0 for rpm in settled), .6 * len(settled))
+                recovered = [rpm for rpm in settled if rpm > 0]
+                # Signal-supported band, not independently measured RPM truth.
+                self.assertTrue(all(1550 < rpm < 2750 for rpm in recovered))
+                self.assertGreater(output[-1][0], 2300)
+
+    def test_log22_packet_timing_with_known_periods_and_no_period(self):
+        rows = plot_dump.load(ROOT / "logs/logs22.csv")[-1].rows
+        packets = [int(row["timestamp_us"]) for row in rows if row["kind"] == 1]
+        times = [t - packets[0] for t in packets]
+        for rpm in (0, 1200, 2400, 3000):
+            with self.subTest(rpm=rpm):
+                rng = random.Random(111)
+                events = []
+                for t in times:
+                    value = round(-64 + 8 * math.sin(math.tau * rpm * t / 60000000)
+                                  + rng.randint(-2, 2))
+                    events.append((t, 0, f"r {t} {value}\n"))
+                for t in range(0, times[-1] + 1, 10000):
+                    # Wrong hint must not manufacture its requested 3300 RPM.
+                    events.append((t, 1, f"u {t} .3 3300\n"))
+                output = self.replay(e[2] for e in sorted(events))[100:]
+                recovered = [value for value, _ in output if value > 0]
+                if rpm:
+                    self.assertGreater(len(recovered), .75 * len(output))
+                    self.assertTrue(all(abs(value - rpm) < .05 * rpm for value in recovered))
+                else:
+                    self.assertFalse(recovered)
 
 
 if __name__ == "__main__":

@@ -11,22 +11,25 @@
 #include <cstring>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include <freertos/task.h>
 
 // One global/static instance per ESP32. All public methods and application
-// callbacks run on the task that services update(). This class owns the ESP-NOW RX
-// callback.
+// callbacks run on the task that services update(). This class owns the ESP-NOW
+// RX callback.
 class NowPair : public ESP_NOW_Peer {
 public:
   enum class Role : uint8_t { Master, Slave };
   static constexpr size_t MAX_PAYLOAD = 120;
   static constexpr int RSSI_UNAVAILABLE = INT_MIN;
+  using RealtimeCallback = void (*)(const uint8_t *, size_t,
+                                    uint32_t receivedMs, void *);
   using ConnectionCallback = void (*)(bool connected, void *arg);
   // RSSI is measured on the receiving board, in dBm, for this packet.
   using DataCallback = void (*)(const uint8_t *data, size_t length, int rssiDbm,
                                 uint32_t timestampUs, void *arg);
   using RssiCallback = void (*)(int rssiDbm, uint32_t timestampUs, void *arg);
   using TimedRssiCallback = void (*)(int rssiDbm, uint32_t radioUs,
-                                    uint32_t callbackUs, void *arg);
+                                     uint32_t callbackUs, void *arg);
 
   explicit NowPair(Role role, uint8_t channel = 6, uint32_t heartbeatMs = 500,
                    uint32_t timeoutMs = 3000);
@@ -70,6 +73,25 @@ public:
   bool sendData(const void *data, size_t length);
   // Queue an empty measurement packet once the remote MAC has been learned.
   bool sendRssiSample();
+  // Latest-value control mailbox, ahead of bulk data, expired after 100 ms.
+  bool sendLatestData(const void *data, size_t length);
+  void onRealtime(RealtimeCallback cb, void *arg) {
+    _realtimeCallback = cb;
+    _realtimeArg = arg;
+  }
+  // Called by the Wi-Fi task only to wake the application, never to send again.
+  void wakeOnSend(TaskHandle_t task) { _txWakeTask = task; }
+  void expectPeer(const uint8_t mac[6]) {
+    if (!_started)
+      memcpy(_expectedPeer, mac, 6);
+  }
+  struct TxStats {
+    uint32_t attempts, completed, failures, max_completion_us;
+  };
+  TxStats txStats() const {
+    return {_txAttempts.load(), _txCompleted.load(), _txFailures.load(),
+            _txMaxUs.load()};
+  }
   // Fill idle TX slots with RSSI packets while connected. Control and
   // application data still take priority, with only one frame in flight.
   void setRssiStreaming(bool enabled) { _streamRssi = enabled; }
@@ -79,7 +101,14 @@ public:
   bool lastMacSendSucceeded() const { return _lastTxSuccess.load(); }
 
 private:
-  enum class Kind : uint8_t { Discover = 1, Probe, Reply, Data, Rssi };
+  enum class Kind : uint8_t {
+    Discover = 1,
+    Probe,
+    Reply,
+    Data,
+    Rssi,
+    Realtime
+  };
 
   struct __attribute__((packed)) Frame {
     Kind kind;
@@ -147,7 +176,7 @@ private:
   uint8_t _channel;
   uint32_t _heartbeatMs, _timeoutMs;
   Broadcaster _broadcaster;
-  QueueHandle_t _rx = nullptr, _rssiRx = nullptr;
+  QueueHandle_t _rx = nullptr, _rssiRx = nullptr, _realtimeRx = nullptr;
   QueueHandle_t _controlTx = nullptr, _dataTx = nullptr;
   bool _started = false, _connected = false;
   std::atomic<bool> _bound{false};
@@ -155,6 +184,15 @@ private:
   bool _probePending = false;
   uint32_t _lastReply = 0, _lastProbe = 0, _lastDiscovery = 0;
   std::atomic<bool> _txBusy{false}, _lastTxSuccess{false};
+  Frame _latest{};
+  bool _latestPending = false;
+  uint32_t _latestAt = 0;
+  uint8_t _expectedPeer[6]{};
+  TaskHandle_t _txWakeTask = nullptr;
+  std::atomic<uint32_t> _txAttempts{0}, _txCompleted{0}, _txFailures{0};
+  std::atomic<uint32_t> _txStartedUs{0}, _txMaxUs{0};
+  RealtimeCallback _realtimeCallback = nullptr;
+  void *_realtimeArg = nullptr;
   bool _streamRssi = false;
   std::atomic<bool> _collectRssi{false};
   std::atomic<uint32_t> _droppedRx{0}, _droppedRssi{0};

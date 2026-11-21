@@ -5,7 +5,8 @@
 
 #define NUM_LEDS 8
 
-#define NEOPIXEL_PIN GPIO_NUM_1
+#define NEOPIXEL_PIN GPIO_NUM_1        // Top LED data
+#define BOTTOM_NEOPIXEL_PIN GPIO_NUM_4 // Separate bottom LED data; rewire first
 #define LEFT_MOTOR_PIN GPIO_NUM_2
 #define RIGHT_MOTOR_PIN GPIO_NUM_3
 
