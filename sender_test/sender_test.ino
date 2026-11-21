@@ -17,7 +17,6 @@ IBusBM IBus;
 DumpReceiver dump_receiver;
 SenderConsole console;
 uint32_t control_session = 0, control_sequence = 0;
-bool swd = true;
 
 void connectionChanged(bool connected, void *) {
   console.status(connected ? "Slave connected" : "Slave disconnected");
@@ -141,7 +140,7 @@ void sendThrottle() {
 
   packet.swa = (IBus.readChannel(6) - 1000) > 500;
   packet.swb = (IBus.readChannel(7) - 1000) > 500;
-  swd = (IBus.readChannel(9) - 1000) > 500;
+  const uint16_t swd_channel = IBus.readChannel(9);
   // packet.swc = IBus.readChannel(4) - 1000;
   // packet.swd = IBus.readChannel(5) - 1000;
 
@@ -195,6 +194,9 @@ void sendThrottle() {
     packet.connected = false;
   }
 
+  console.companion.observe_radio_orientation(
+      swd_channel > 1500,
+      packet.connected && swd_channel >= 1000 && swd_channel <= 2000);
   console.companion.apply(packet, millis());
 
   uint8_t data_buffer[NowPair::MAX_PAYLOAD];

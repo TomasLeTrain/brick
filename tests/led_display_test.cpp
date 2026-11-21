@@ -116,7 +116,7 @@ int main() {
     expect_color(out, i,
                  {behind.led_red[i], behind.led_green[i], behind.led_blue[i]});
 
-  // Inversion swaps the entire palette, not the positions of the ranges.
+  // Selecting motor orientation does not alter either physical face palette.
   for (float turns : {0.f, .2f, .3f, .5f, .8f, .99f}) {
     input.is_upright = true;
     melt.general_update();
@@ -125,10 +125,9 @@ int main() {
     melt.general_update();
     const auto flipped = render(turns);
     for (int i = 0; i < NUM_LEDS; ++i)
-      expect_color(flipped, i,
-                   LedPalette::flip({normal.led_red[i], normal.led_green[i],
-                                     normal.led_blue[i]},
-                                    i == LedDisplay::wheel_pixel));
+      expect_color(
+          flipped, i,
+          {normal.led_red[i], normal.led_green[i], normal.led_blue[i]});
   }
   input.vx = 0;
   input.is_upright = true;
@@ -156,8 +155,8 @@ int main() {
   expect_color(render(0), LedDisplay::wheel_pixel, {255, 0, 0});
   input.is_upright = false;
   melt.general_update();
-  expect_body(render(0), LedPalette::text);
-  expect_color(render(0), LedDisplay::wheel_pixel, {0, 255, 255});
+  expect_body(render(0), LedPalette::background);
+  expect_color(render(0), LedDisplay::wheel_pixel, {255, 0, 0});
   input.manual_drive_type = DriveType::Tank;
   input.is_upright = true;
   melt.general_update();

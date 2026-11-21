@@ -52,11 +52,20 @@ public:
     last_ms = now_ms;
     active = enabled;
     turn_milli = turn;
-    if (orientation >= 0) {
-      inverted = orientation;
-      orientation_request = (orientation_request + 1) & 127;
-    }
+    if (orientation >= 0)
+      select_orientation(orientation);
     return true;
+  }
+  // Establish the initial switch position without overriding a Joy-Con
+  // selection. Only valid radio edges select a pose; keep the baseline across
+  // disconnects so stale/failsafe frames cannot create an orientation action.
+  void observe_radio_orientation(bool down, bool valid) {
+    if (!valid)
+      return;
+    if (radio_seen && down != radio_down)
+      select_orientation(down);
+    radio_seen = true;
+    radio_down = down;
   }
   bool owns_heading(uint32_t now_ms) const {
     return seen && active && uint32_t(now_ms - last_ms) < lease_ms;
@@ -71,7 +80,12 @@ public:
   bool is_inverted() const { return inverted; }
 
 private:
+  void select_orientation(bool down) {
+    inverted = down;
+    orientation_request = (orientation_request + 1) & 127;
+  }
   bool seen = false, active = false, inverted = false;
+  bool radio_seen = false, radio_down = false;
   uint8_t orientation_request = 0;
   int turn_milli = 0;
   uint32_t current_session = 0, current_sequence = 0, last_ms = 0;

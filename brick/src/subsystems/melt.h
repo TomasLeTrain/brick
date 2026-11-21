@@ -35,8 +35,11 @@ struct MeltInput {
   // when melt throttle is below deadzone, tank mode is used
   bool auto_drive_type;
 
-  // whether robot is upright
+  // whether robot is upright (translation direction only)
   bool is_upright;
+
+  // Companion input has already passed the browser deadzone.
+  bool companion_heading = false;
 };
 
 struct MeltOutput {

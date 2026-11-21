@@ -12,14 +12,17 @@ Open <http://localhost:8000> in desktop Chrome/Chromium or Edge, connect the
 sender by USB, and select a Joy-Con/gamepad exposed by your OS. The second pilot
 takes over heading by default when connected and focused, with a 150 ms timeout
 back to the main radio. Axis and button mappings are remembered per controller.
-The page also
-provides absolute Upright/Inverted actions with a 300 ms selected-face flash,
+Heading sensitivity defaults to 25% and is adjustable from 1–100%.
+The page also provides absolute Upright/Inverted actions with a 300 ms selected-face flash,
 live telemetry, log commands, CSV copy/download,
 and a run inspector with locally reconstructed correlation curves. Throttle,
 translation, and arming remain on the physical radio.
+Changing the main radio's SWD also selects orientation (0 upright, 1 inverted);
+leaving it unchanged preserves Joy-Con selections.
 
-Top/bottom LED data use GPIO 1/4 with opposite white/blue palettes, swapped by
-the orientation controls. A solid 0.3-turn bar marks theta=0; the last pixel shows a hue
+Top/bottom LED data use GPIO 1/4 with fixed white/blue and blue/white palettes.
+Orientation selection only flashes the selected face for 300 ms before restoring
+its original scheme. A solid 0.3-turn bar marks theta=0; the last pixel shows a hue
 wheel. Rewire the bottom data line separately, or change those pins in
 `brick/config.h`. Control/telemetry
 packets are versioned and require updating **both** ESPs; persisted dump format

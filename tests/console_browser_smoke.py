@@ -47,6 +47,13 @@ def main():
             page.set_default_timeout(8000)
             page.bring_to_front()
             page.wait_for_function("document.querySelector('#gamepad').textContent.includes('Joy-Con test')")
+            assert page.locator('#gain').input_value() == '25'
+            assert page.locator('#gain').get_attribute('min') == '1'
+            page.evaluate("localStorage.setItem('brick-mapping:Joy-Con test', JSON.stringify({axis:'1',gain:'100'}))")
+            page.reload()
+            page.wait_for_function("document.querySelector('#gamepad').textContent.includes('Joy-Con test')")
+            page.wait_for_function("document.querySelector('#axis').value === '1'")
+            assert page.locator('#gain').input_value() == '25' # Old default migrated, mapping retained.
             page.locator('summary').click()
             page.locator('#captureButton').select_option('3')
             page.locator('#exportButton').select_option('4')

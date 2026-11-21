@@ -11,6 +11,14 @@ export const RPM_STATUS = [
   "stale",
   "period jump rejected",
 ];
+// Migrate the old full-speed default once, without discarding axis/button
+// profiles. Explicit 100% choices saved by the new console remain valid.
+export function restoredHeadingGain(saved = {}) {
+  let gain = Number(saved.gain ?? 25);
+  if (!Number.isFinite(gain)) gain = 25;
+  if (Number(saved.gainVersion) !== 2 && gain === 100) gain = 25;
+  return Math.max(1, Math.min(100, Math.round(gain)));
+}
 export function axisValue(value, deadzone = 0.12, gain = 1, invert = false) {
   if (!Number.isFinite(value)) return 0;
   deadzone = Number.isFinite(deadzone)

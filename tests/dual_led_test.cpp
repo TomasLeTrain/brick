@@ -107,4 +107,17 @@ int main() {
   top.leds_off();
   assert(byte(a, 0) == 0 && byte(a, 1) == 0 && byte(a, 2) == 0);
   host_rmt_complete_all();
+  // The bottom has its own permanent blue background. Its feedback may flash
+  // white, but restoring the flag always restores blue regardless of pose.
+  std::fill_n(r, NUM_LEDS, 255);
+  std::fill_n(g, NUM_LEDS, 255);
+  std::fill_n(blue, NUM_LEDS, 255);
+  bottom.set_palette_flash(true);
+  bottom.leds_on_array(r, g, blue, true);
+  assert(byte(b, 0) == 254 && byte(b, 1) == 254 && byte(b, 2) == 254);
+  host_rmt_complete_all();
+  bottom.set_palette_flash(false);
+  bottom.leds_on_array(r, g, blue, true);
+  assert(byte(b, 0) == 0 && byte(b, 1) == 0 && byte(b, 2) == 254);
+  host_rmt_complete_all();
 }

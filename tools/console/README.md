@@ -27,6 +27,10 @@ Raw Joy-Con axis/button numbers vary by OS. Check the live input preview first.
    heading axis/direction/gain/deadzone. Companion heading is **enabled by default**;
    use **Disable companion heading** to leave heading on the radio. Settings restore
    per controller on subsequent visits, including its axis, direction and gain.
+   **Heading sensitivity** defaults to **25%** (a quarter of the old maximum);
+   adjust the slider from **1–100%**. A saved old 100% default migrates once to 25%,
+   without changing the axis/buttons. Explicit 100% choices made in the updated
+   console are retained. Other custom saved sensitivities are kept.
    The stick commands a heading **turn rate**, matching the existing radio turn
    input. It does not command an absolute compass heading.
 
@@ -61,11 +65,21 @@ without a gamepad. There are no external scripts, uploads, or cloud services.
 read the previous pose and toggle it. Repeated presses of the same button keep
 the same pose. The inverted pose reverses the motor translation multiplier
 without rotating heading, changing spin direction, or shifting the LED vector.
-Tank drive retains the main radio's usual controls.
+Tank drive retains the main radio's usual controls. Companion turns use the
+browser deadzone only, so small low-sensitivity inputs are not discarded by a
+second radio deadzone. Radio steering keeps its existing deadzone.
+
+The main radio's **SWD** is an independent fallback: changing it to **0 selects
+upright**, and changing it to **1 selects inverted** (iBus channel 9, threshold
+1500). Leaving SWD untouched never overrides a Joy-Con selection. The first valid
+radio reading only establishes the switch baseline; move it to make a selection.
+Disconnected/failsafe or out-of-range readings are ignored, and the last valid
+position is retained across disconnects. Valid SWD changes use the same 300 ms
+acknowledgement as the console and work without a computer connection.
 
 Each press, even reselecting the current pose, briefly reverses the palette on
 **only the selected top face for 300 ms**: Upright acknowledges on GPIO 1,
-Inverted on GPIO 4. The other face keeps its normal scene for the selected pose.
+Inverted on GPIO 4. The other face keeps its fixed physical-face palette.
 The acknowledgement also works while the spin switch is off. A new selection
 replaces an existing flash; held buttons and RF duplicates do not extend/replay
 it. A seven-bit action revision is retained in subsequent controls so a missed
@@ -86,12 +100,15 @@ the received orientation separately from the sender's requested orientation.
 
 Separate the two strips' data wires before using two colors. By default:
 
-| Face while upright | Data GPIO | Background | RPM text / heading bar | Translation vector |
+| Physical face | Data GPIO | Background | RPM text / heading bar | Translation vector |
 | --- | --- | --- | --- | --- |
 | Top | 1 | White | Blue | Pink |
 | Bottom | 4 | Blue | White | Mint |
 
-Changing the selected orientation swaps these palettes between faces without rotating the ranges.
+These palettes identify the physical faces and **do not swap** when orientation
+is selected. Only the selected face's 300 ms acknowledgement reverses its palette,
+after which that same face returns to its fixed scheme. Motor translation still
+reverses for the inverted pose, without changing LED positions or baseline colors.
 The text sweep retains the merged horizontal/row reversal, is centered at theta
 = pi, and displays RPM rounded down to hundreds. The third, solid heading bar is
 centered at theta = 0 with width **0.3 turns** (108 degrees). Change
@@ -101,7 +118,8 @@ vector rows override either, leaving the remaining rows visible beneath them.
 
 Pixel `NUM_LEDS - 1` (7 on an eight-pixel strip) is reserved for a full-saturation
 hue wheel: red at theta=0, green at 120 degrees, blue at 240 degrees. The other
-face displays the opposite hue; orientation selection swaps those too. The first seven
+face displays the opposite hue; orientation selection leaves both baseline hues
+unchanged. The acknowledgement temporarily reverses only the selected face. The first seven
 pixels carry the bar/vector and all five glyph rows, so the hue indicator never
 cuts through the text. All ranges and the wheel share the existing LED latency
 shift. Idle/tank mode uses the face background plus the hue pixel.

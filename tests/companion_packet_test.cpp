@@ -124,6 +124,36 @@ int main() {
   assert(selections.receive("@C,1,1,3,0,0,0", 3));
   selections.apply(selected, 3);
   assert(selected.orientation_request == 2);
+  // SWD is an independent edge-triggered fallback, never a continuous
+  // override of the Joy-Con. Startup/reconnect/failsafe frames are not edges.
+  CompanionControl radio;
+  radio.observe_radio_orientation(true, false);
+  radio.observe_radio_orientation(false, true);
+  radio.apply(selected, 0);
+  assert(!selected.inverted && selected.orientation_request == 0);
+  assert(radio.receive("@C,1,1,1,0,1,1", 0));
+  radio.observe_radio_orientation(false, true);
+  radio.apply(selected, 0);
+  assert(selected.inverted && selected.orientation_request == 1);
+  radio.observe_radio_orientation(true, false); // Ignore failsafe values.
+  radio.observe_radio_orientation(false, true); // Same on reconnection.
+  radio.apply(selected, 1);
+  assert(selected.inverted && selected.orientation_request == 1);
+  radio.observe_radio_orientation(true, true); // Same pose still acknowledges.
+  radio.apply(selected, 2);
+  assert(selected.inverted && selected.orientation_request == 2);
+  radio.observe_radio_orientation(false, true);
+  radio.apply(selected, 151); // No computer lease needed for the fallback.
+  assert(!selected.inverted && !selected.companion_active &&
+         selected.orientation_request == 3);
+  assert(radio.receive("@C,1,1,2,0,1,0", 152));
+  radio.observe_radio_orientation(false, true);
+  radio.apply(selected, 152);
+  assert(selected.inverted && selected.orientation_request == 4);
+  radio.observe_radio_orientation(true, true);
+  radio.observe_radio_orientation(false, true);
+  radio.apply(selected, 153);
+  assert(!selected.inverted && selected.orientation_request == 6);
   OrientationRequests requests;
   assert(!requests.accept(1, 0, false)); // Startup isn't a button press.
   assert(requests.accept(1, 1, false));

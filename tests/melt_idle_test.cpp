@@ -1,5 +1,6 @@
 #include "../brick/src/subsystems/melt.h"
 #include <cassert>
+#include <cmath>
 
 uint32_t host_ms = 1000;
 void fill_color(uint8_t, uint8_t, uint8_t, uint8_t[], uint8_t[], uint8_t[]) {}
@@ -71,4 +72,27 @@ int main() {
   melt.fast_update();
   assert(melt.get_output()->left_power == melt.get_output()->right_power);
   assert(melt.get_output()->left_power > 0);
+  // Low-sensitivity companion turns survive the browser's deadzone scaling;
+  // the radio keeps its original deadzone for the same small input.
+  const auto small_turn = [](bool companion) {
+    Melt steering;
+    auto &command = *steering.get_input();
+    command = {};
+    command.manual_drive_type = DriveType::Melting;
+    command.target_rpm_control = .6f;
+    command.rpm = 1500;
+    command.turn_control = .05f;
+    command.companion_heading = companion;
+    steering.general_update();
+    steering.set_phase_reference(host_ms * 1000, 0, 1500);
+    steering.fast_update();
+    host_ms += 20;
+    steering.set_phase_reference(host_ms * 1000, 0, 1500);
+    steering.fast_update();
+    return std::abs(
+        std::remainder(steering.heading_rad(), 6.2831853071795864769f));
+  };
+  assert(small_turn(false) < .0001f);
+  const float fine_turn = small_turn(true);
+  assert(fine_turn > .001f && fine_turn < .02f);
 }

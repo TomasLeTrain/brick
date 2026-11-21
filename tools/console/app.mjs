@@ -1,5 +1,6 @@
 import {
   axisValue,
+  restoredHeadingGain,
   controlLine,
   LineDecoder,
   LogCollector,
@@ -406,8 +407,9 @@ function configureMappings() {
     select.value = String(saved[id] ?? defaults[id]);
     if (select.selectedIndex < 0) select.selectedIndex = 0;
   }
-  for (const id of ["gain", "deadzone", "invert"])
+  for (const id of ["deadzone", "invert"])
     if (saved[id] !== undefined) $(id).value = saved[id];
+  $("gain").value = restoredHeadingGain(saved);
   $("gainValue").textContent = $("gain").value + "%";
 }
 function saveMapping() {
@@ -432,7 +434,10 @@ function saveMapping() {
   try {
     localStorage.setItem(
       getPad() ? "brick-mapping:" + getPad().id : "brick-mapping",
-      JSON.stringify(Object.fromEntries(ids.map((id) => [id, $(id).value]))),
+      JSON.stringify({
+        ...Object.fromEntries(ids.map((id) => [id, $(id).value])),
+        gainVersion: 2,
+      }),
     );
     if (getPad()) localStorage.setItem("brick-controller-id", getPad().id);
   } catch {

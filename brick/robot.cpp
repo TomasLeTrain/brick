@@ -164,6 +164,7 @@ void Robot::general_update() {
     melt_input->vx = vx;
     melt_input->vy = vy;
     melt_input->turn_control = turn_control;
+    melt_input->companion_heading = throttle_packet->companion_active;
     melt_input->target_rpm_control = target_rpm_control;
     // melt_input->led_shift_amount = led_shift_amount;
     melt_input->led_shift_amount = LED_SHIFT;
@@ -282,7 +283,7 @@ void Robot::motor_update() {
     melt.fast_update();
     const MeltOutput *output = melt.get_output();
     leds.leds_on_array(output->led_red, output->led_green, output->led_blue);
-    // The bottom face uses the opposite palette; manual flip swaps the faces.
+    // Each physical face keeps its own palette; feedback is temporary.
     bottom_leds.leds_on_array(output->led_red, output->led_green,
                               output->led_blue, true);
 

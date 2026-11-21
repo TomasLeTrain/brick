@@ -32,8 +32,10 @@ void Melt::general_update() {
 
   float turn_control = input.turn_control;
 
-  // turn control deadzone
-  if (fabsf(turn_control) < config.melt_turn_control_deadzone) {
+  // Companion input is already deadzoned before sensitivity scaling. Applying
+  // the radio deadzone again would erase fine inputs at low sensitivity.
+  if (!input.companion_heading &&
+      fabsf(turn_control) < config.melt_turn_control_deadzone) {
     turn_control = 0;
   }
 
@@ -298,13 +300,6 @@ void Melt::led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],
   red[LedDisplay::wheel_pixel] = wheel.red;
   green[LedDisplay::wheel_pixel] = wheel.green;
   blue[LedDisplay::wheel_pixel] = wheel.blue;
-  if (!input.is_upright) {
-    for (int i = 0; i < NUM_LEDS; ++i) {
-      const LedColor color = LedPalette::flip({red[i], green[i], blue[i]},
-                                              i == LedDisplay::wheel_pixel);
-      red[i] = color.red;
-      green[i] = color.green;
-      blue[i] = color.blue;
-    }
-  }
+  // Physical face palettes are fixed. Only the LED driver acknowledgement
+  // temporarily inverts the selected face, independently of motor orientation.
 }

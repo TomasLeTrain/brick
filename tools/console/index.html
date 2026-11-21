@@ -49,8 +49,8 @@
           >
         </div>
         <label
-          >Turn gain <output id="gainValue">100%</output
-          ><input id="gain" type="range" min="10" max="100" value="100"
+          >Heading sensitivity <output id="gainValue">25%</output
+          ><input id="gain" type="range" min="1" max="100" value="25"
         /></label>
         <div class="two">
           <label
@@ -103,6 +103,8 @@
           vector stay in place. State stays latched on the sender until changed
           or rebooted. The selected top face briefly flips colors for 300 ms to
           acknowledge each press.
+          Radio SWD changes also select orientation: 0 upright, 1 inverted.
+          Leaving SWD unchanged preserves Joy-Con selections.
         </p>
       </aside>
       <section class="workspace">

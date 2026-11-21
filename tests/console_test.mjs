@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   axisValue,
+  restoredHeadingGain,
   controlLine,
   LineDecoder,
   LogCollector,
@@ -77,4 +78,14 @@ test("real CSV and correlation survive older clock domains and clean oscillation
     /Incomplete/,
   );
   assert.throws(() => parseCsv("just words"), /No RSSI/);
+});
+
+test("heading sensitivity defaults low and migrates only the old full-speed default", () => {
+  assert.equal(restoredHeadingGain({}), 25);
+  assert.equal(restoredHeadingGain({ gain: "100", axis: "1" }), 25);
+  assert.equal(restoredHeadingGain({ gain: "100", gainVersion: 2 }), 100);
+  assert.equal(restoredHeadingGain({ gain: "65" }), 65);
+  assert.equal(restoredHeadingGain({ gain: "bad" }), 25);
+  assert.equal(restoredHeadingGain({ gain: "0" }), 1);
+  assert(Math.abs(axisValue(0.2, 0.12, 0.25)) > 0);
 });
