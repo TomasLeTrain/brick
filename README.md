@@ -112,6 +112,39 @@ The implementation estimates speed from RSSI periodicity. Its sampling and
 autocorrelation approach was inspired by
 [TGower/rotation_sensing](https://github.com/TGower/rotation_sensing).
 
+## Arming after an ESP32 restart
+
+Cold power-up still runs the existing **4.4-second** ESC arming sequence. After
+it finishes, the receiver records a small checked marker in RTC no-init memory;
+there are no flash writes. A software, panic, watchdog, brownout, power-glitch
+or CPU-lockup restart skips that sequence only when the marker survives intact
+and matches the current firmware. Power-on, unknown, external, USB/JTAG,
+deep-sleep and other reset reasons use normal arming. A changed firmware image
+or corrupt/lost RTC state also uses normal arming.
+
+The marker is consumed at the start of `Robot::begin`, before motor/radio
+initialization, and restored only after arming completes on this boot. A second
+reset after consumption but before completion therefore
+falls back to a full sequence. Failed motor initialization leaves outputs
+disabled and cannot create a new marker. Both ordinary and resumed boots still
+require newly received, valid radio controls and SWA before driving; no throttle
+or old radio packet is restored. The DShot driver is unchanged (its zero-throttle
+hold is currently disabled in this repository).
+
+Serial prints `# boot arming=resume` or `# boot arming=full` after the existing
+`# boot reset_reason=...` line. Capture that reset reason after an impact to
+distinguish a software/watchdog failure from a supply interruption. Set
+`RESUME_ARMING_ON_WARM_RESET=false` in `brick/config.h` to always run the sequence.
+
+This removes the added arming delay, not the ESP32 boot and radio reconnection
+time. RPM and heading history start fresh; translation waits for usable RPM as
+before. RTC contents may be lost during a supply interruption, and this marker
+cannot establish whether an ESC also rebooted. If the ESCs lost power or disarmed,
+they may need their normal sequence; power-cycle the entire robot to force one.
+Skipping arming does not identify or repair the cause of an impact-related reset.
+See Espressif's [reset reasons](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/misc_system_api.html)
+and [retained memory](https://docs.espressif.com/projects/esp-idf/en/v5.5.2/esp32s3/api-guides/memory-types.html).
+
 ## RPM timing and heading
 
 `RpmHeadingTracker` uses RPM dead reckoning plus a correction for delayed speed
@@ -259,6 +292,8 @@ c++ -std=c++17 -O2 -Itests/host -Ibrick tests/comms_export_test.cpp \
 /tmp/brick-comms-export-test 20
 c++ -std=c++17 -O2 tests/storage_gate_test.cpp -o /tmp/brick-storage-gate-test
 /tmp/brick-storage-gate-test
+c++ -std=c++17 -O2 -Itests/host tests/boot_arming_test.cpp -o /tmp/brick-boot-arming-test
+/tmp/brick-boot-arming-test
 c++ -std=c++17 -O2 -Itests/host tests/led_buffer_test.cpp \
     brick/src/subsystems/led.cpp -o /tmp/brick-led-test
 /tmp/brick-led-test

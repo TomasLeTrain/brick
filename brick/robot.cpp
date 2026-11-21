@@ -1,14 +1,25 @@
 #include "robot.h"
 #include "config.h"
+#include "src/subsystems/boot_arming.h"
 #include "src/subsystems/led.h"
 #include "src/subsystems/melt.h"
 #include <cstring>
+#include <esp_app_desc.h>
+#include <esp_attr.h>
 #include <esp_system.h>
+
+namespace {
+RTC_NOINIT_ATTR RetainedArming retained_arming;
+} // namespace
 
 Robot::Robot() {}
 
 void Robot::begin() {
   const esp_reset_reason_t reset = esp_reset_reason();
+  std::memcpy(&firmware_tag, esp_app_get_description()->app_elf_sha256,
+              sizeof(firmware_tag));
+  resume_arming = BootArming::consume(retained_arming, reset, firmware_tag) &&
+                  RESUME_ARMING_ON_WARM_RESET;
   const char *reason = "other";
   switch (reset) {
   case ESP_RST_POWERON:
@@ -32,17 +43,27 @@ void Robot::begin() {
   case ESP_RST_BROWNOUT:
     reason = "brownout";
     break;
+  case ESP_RST_PWR_GLITCH:
+    reason = "power-glitch";
+    break;
+  case ESP_RST_CPU_LOCKUP:
+    reason = "cpu-lockup";
+    break;
   default:
     break;
   }
   Serial.printf("# boot reset_reason=%d (%s)\n", int(reset), reason);
+  Serial.printf("# boot arming=%s\n", resume_arming ? "resume" : "full");
   // TODO: check for any begin errors and report with leds
   // leds.set_brightness(30);
   leds.set_brightness(30);
   bottom_leds.set_brightness(30);
 
-  left_motor.begin(LEFT_MOTOR_PIN, DSHOT600, false, 14);
-  right_motor.begin(RIGHT_MOTOR_PIN, DSHOT600, false, 14);
+  const bool left_ready = left_motor.begin(LEFT_MOTOR_PIN, DSHOT600, false, 14);
+  const bool right_ready = right_motor.begin(RIGHT_MOTOR_PIN, DSHOT600, false, 14);
+  motors_initialized = left_ready && right_ready;
+  if (!motors_initialized)
+    Serial.println("# motor initialization failed; outputs disabled");
 
   // NOTE: if comms used within 800 msec if startup then a temporary
   // disconnect can occur shouldn't cause an issue so no delay is added here
@@ -59,6 +80,14 @@ void Robot::begin() {
 
 // blocking
 void Robot::arming_sequence() {
+  if (!motors_initialized)
+    return; // Leave the retained marker invalid and motor task disabled.
+  if (resume_arming) {
+    BootArming::complete(retained_arming, firmware_tag);
+    arming.store(false);
+    Serial.println("# arming skipped after retained restart; waiting for fresh controls");
+    return;
+  }
   // perform arming sequence
   command = 0;
   delay(3400);
@@ -68,7 +97,8 @@ void Robot::arming_sequence() {
   // then go back to zero again, fully done
   command = 0;
   delay(500);
-  arming = false;
+  BootArming::complete(retained_arming, firmware_tag);
+  arming.store(false);
 }
 
 bool last_switch_position = false;
@@ -232,6 +262,11 @@ void Robot::general_update() {
 }
 
 void Robot::motor_update() {
+  if (!motors_initialized) {
+    motor_active.store(false);
+    vTaskDelay(1);
+    return;
+  }
   static uint32_t previous_us = 0;
   const uint32_t now_us = micros();
   if (previous_us) {
@@ -276,8 +311,9 @@ void Robot::motor_update() {
       announced = true;
     }
     motor_active.store(true);
-    left_motor.send(command);
-    right_motor.send(command);
+    const uint16_t arming_command = command.load();
+    left_motor.send(arming_command);
+    right_motor.send(arming_command);
   } else if (connected == ConnectionState::Ready &&
              comms.motor_control_fresh()) {
     melt.fast_update();

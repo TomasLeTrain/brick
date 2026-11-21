@@ -41,11 +41,13 @@ private:
   std::atomic<bool> motor_active{true};
   std::atomic<uint32_t> motor_max_gap_us{0};
   StorageGate storage_gate;
+  bool resume_arming = false, motors_initialized = false;
+  uint32_t firmware_tag = 0;
 
   // only applies when not arming
   // should only be true when no issues are present
   std::atomic<ConnectionState> connected{NetworkDisconnect};
 
   // used for arming
-  int command = 0;
+  std::atomic<uint16_t> command{0};
 };

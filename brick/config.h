@@ -20,6 +20,10 @@
 // Optional active-low snapshot button. Connect the chosen free GPIO to GND.
 constexpr int DUMP_BUTTON_PIN = -1;
 
+// Skip repeat ESC arming on an eligible restart with a valid retained marker.
+// Cold starts, new firmware and lost/corrupt RTC state always arm normally.
+constexpr bool RESUME_ARMING_ON_WARM_RESET = true;
+
 // Boot defaults; a/t/n serial commands can select the mode until reboot.
 constexpr bool RPM_HEADING_COMPENSATION = true;
 // false: acceleration-only; translation uses plain dead reckoning.
