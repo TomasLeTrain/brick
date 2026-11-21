@@ -24,6 +24,8 @@ let selectedPad = "",
   padSignature = "",
   buttonsBefore = [],
   orientation = -1;
+let pendingOrientation = null,
+  orientationAction = 0;
 let latest = null,
   latestAt = 0,
   history = [],
@@ -49,7 +51,7 @@ function refreshConnection() {
     : "Serial disconnected";
   $("serialDot").classList.toggle("on", !!port);
   $("arm").disabled = !port || !getPad();
-  $("flip").disabled = !port;
+  $("upright").disabled = $("inverted").disabled = !port;
   document
     .querySelectorAll("[data-command], #sendCommand")
     .forEach((b) => (b.disabled = !port));
@@ -60,8 +62,24 @@ function refreshConnection() {
   $("ownership").textContent = armed
     ? "Companion enabled. Missing controller, focus, or a 150 ms lease timeout returns heading to the radio."
     : "Radio heading owns control. A 150 ms timeout returns it to the radio.";
-  $("flip").textContent =
-    `Flip translation · ${(orientation < 0 ? latest?.sender_inverted : orientation) ? "inverted" : "upright"}`;
+  const requested = orientation < 0 ? latest?.sender_inverted : orientation;
+  for (const [id, value] of [
+    ["upright", 0],
+    ["inverted", 1],
+  ]) {
+    $(id).classList.toggle(
+      "selected",
+      requested !== undefined && Number(requested) === value,
+    );
+    $(id).setAttribute(
+      "aria-pressed",
+      String(requested !== undefined && Number(requested) === value),
+    );
+  }
+  $("orientationState").textContent =
+    requested === undefined
+      ? "Orientation not yet reported."
+      : `Selected: ${requested ? "Inverted" : "Upright"} · robot: ${latest?.have_telemetry && latest.rx_age_ms < 1000 ? (latest.inverted ? "Inverted" : "Upright") : "not yet reported"}. The selected top face flashes for 300 ms.`;
 }
 function getPad() {
   return (
@@ -96,13 +114,8 @@ function queueControl(release = false) {
   if (!port) return;
   const { turn, enabled } = effectiveTurn();
   pendingControl = {
-    text: controlLine(
-      session,
-      ++sequence,
-      release ? 0 : turn,
-      orientation,
-      !release && enabled,
-    ),
+    turn: release ? 0 : turn,
+    enabled: !release && enabled,
     at: performance.now(),
   };
   pump();
@@ -117,14 +130,29 @@ function pump() {
       (commands.length || pendingControl)
     ) {
       await activeWriter.ready;
-      let text = commands.shift();
+      let text = commands.shift(),
+        sentAction = 0;
       if (!text && pendingControl) {
         const frame = pendingControl;
         pendingControl = null;
         if (performance.now() - frame.at > 80) continue;
-        text = frame.text;
+        const selection = pendingOrientation;
+        sentAction = selection === null ? 0 : orientationAction;
+        text = controlLine(
+          session,
+          ++sequence,
+          frame.turn,
+          selection ?? -1,
+          frame.enabled,
+        );
       }
-      if (text) await activeWriter.write(new TextEncoder().encode(text));
+      if (text) {
+        await activeWriter.write(new TextEncoder().encode(text));
+        // Resolve selection at write time, so coalesced heartbeats cannot repeat
+        // an action that has already reached the sender.
+        if (sentAction && sentAction === orientationAction)
+          pendingOrientation = null;
+      }
     }
   })()
     .catch((error) => {
@@ -177,6 +205,8 @@ async function connectSerial() {
     sequence = 0;
     armed = false;
     orientation = -1;
+    pendingOrientation = null;
+    orientationAction = 0;
     latest = null;
     latestAt = 0;
     commands = [];
@@ -306,8 +336,23 @@ function refreshGamepads() {
     }`;
   const down = pad.buttons.map((b) => b.pressed);
   if (armed && !document.hidden && document.hasFocus()) {
+    const up = Number($("uprightButton").value),
+      downButton = Number($("invertedButton").value);
+    if (
+      up >= 0 &&
+      down[up] &&
+      !buttonsBefore[up] &&
+      !(downButton >= 0 && down[downButton])
+    )
+      selectOrientation(0);
+    if (
+      downButton >= 0 &&
+      down[downButton] &&
+      !buttonsBefore[downButton] &&
+      !(up >= 0 && down[up])
+    )
+      selectOrientation(1);
     for (const [id, action] of [
-      ["flipButton", flip],
       ["captureButton", () => command("s")],
       ["exportButton", () => command("e")],
     ]) {
@@ -326,7 +371,8 @@ function configureMappings() {
   for (const id of [
     "axis",
     "deadman",
-    "flipButton",
+    "uprightButton",
+    "invertedButton",
     "captureButton",
     "exportButton",
   ]) {
@@ -344,7 +390,8 @@ function configureMappings() {
     const defaults = {
       axis: 0,
       deadman: -1,
-      flipButton: 1,
+      uprightButton: 0,
+      invertedButton: 1,
       captureButton: -1,
       exportButton: -1,
     };
@@ -356,10 +403,18 @@ function configureMappings() {
   $("gainValue").textContent = $("gain").value + "%";
 }
 function saveMapping() {
+  if (
+    $("uprightButton").value !== "-1" &&
+    $("uprightButton").value === $("invertedButton").value
+  ) {
+    $("invertedButton").value = "-1";
+    notice("Choose different buttons for Upright and Inverted.", true);
+  }
   const ids = [
     "axis",
     "deadman",
-    "flipButton",
+    "uprightButton",
+    "invertedButton",
     "captureButton",
     "exportButton",
     "gain",
@@ -376,14 +431,15 @@ function saveMapping() {
   queueControl(true);
   refreshConnection();
 }
-function flip() {
+function selectOrientation(value) {
   if (!port) return;
-  orientation = (orientation < 0 ? latest?.sender_inverted : orientation)
-    ? 0
-    : 1;
+  orientation = value;
+  pendingOrientation = value;
+  orientationAction++;
   queueControl();
   refreshConnection();
 }
+
 function metric(id, value, suffix = "") {
   $(id).replaceChildren(document.createTextNode(value));
   if (suffix) {
@@ -686,7 +742,8 @@ $("arm").onclick = () => {
   queueControl(!armed);
   refreshConnection();
 };
-$("flip").onclick = flip;
+$("upright").onclick = () => selectOrientation(0);
+$("inverted").onclick = () => selectOrientation(1);
 $("gamepad").onchange = () => {
   selectedPad = $("gamepad").value;
   armed = false;
@@ -698,7 +755,8 @@ $("gamepad").onchange = () => {
 for (const id of [
   "axis",
   "deadman",
-  "flipButton",
+  "uprightButton",
+  "invertedButton",
   "captureButton",
   "exportButton",
   "gain",

@@ -259,6 +259,13 @@ void Robot::motor_update() {
     vTaskDelay(1);
     return;
   }
+  const uint32_t now_ms = millis();
+  if (!arming)
+    orientation_flash.observe(comms.orientation_feedback(), now_ms);
+  const bool top_changed =
+      leds.set_palette_flash(orientation_flash.active(false, now_ms));
+  const bool bottom_changed =
+      bottom_leds.set_palette_flash(orientation_flash.active(true, now_ms));
   if (arming) {
     // One startup message is sufficient; never print at the 1 kHz motor rate.
     static bool announced = false;
@@ -304,7 +311,7 @@ void Robot::motor_update() {
     // Keep every runtime LED/RMT call on this task, including switch-off and
     // disconnect indications. The general task must not submit after park ACK.
     static uint32_t last_status_led_us = 0;
-    if (now_us - last_status_led_us >= 10000) {
+    if (top_changed || bottom_changed || now_us - last_status_led_us >= 10000) {
       last_status_led_us = now_us;
       if (connected == ConnectionState::NetworkDisconnect)
         leds.leds_on_no_controller();

@@ -74,4 +74,23 @@ int main() {
   assert(!robot.motor_control_fresh());
   assert(robot.get_throttle_packet()
              ->inverted); // A timeout doesn't undo physical orientation.
+  // A same-pose explicit request is acknowledged once through production Comms.
+  control.orientation_request = 1;
+  ++control.sequence;
+  control.serialize(bytes);
+  incoming(6, bytes, sizeof(bytes));
+  robot.update();
+  const uint32_t event = robot.orientation_feedback();
+  assert(event && (event & 1));
+  ++control.sequence;
+  control.serialize(bytes);
+  incoming(6, bytes, sizeof(bytes));
+  robot.update();
+  assert(robot.orientation_feedback() == event);
+  control.orientation_request = 2;
+  ++control.sequence;
+  control.serialize(bytes);
+  incoming(6, bytes, sizeof(bytes));
+  robot.update();
+  assert(robot.orientation_feedback() != event);
 }

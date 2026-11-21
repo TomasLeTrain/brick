@@ -30,6 +30,7 @@ private:
   AlfredoDShot left_motor;
   AlfredoDShot right_motor;
 
+  OrientationFlash orientation_flash;
   LED leds;
   LED bottom_leds{BOTTOM_NEOPIXEL_PIN};
   Comms comms;

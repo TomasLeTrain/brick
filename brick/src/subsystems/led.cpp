@@ -134,17 +134,13 @@ void LED::leds_on_gradient(uint8_t color) {
   leds_on_rgb(red, green, 0);
 }
 
-void LED::leds_off() {
-  // set all pixels to zero
-  memset(pixel_color, 0, sizeof(pixel_color));
-  write_pixels();
-}
+void LED::leds_off() { leds_on_rgb(0, 0, 0); }
 
 void LED::leds_on_array(const uint8_t red[], const uint8_t green[],
                         const uint8_t blue[], bool bottom_face) {
   for (size_t i = 0; i < NUM_LEDS; i++) {
     uint8_t r = red[i], g = green[i], b = blue[i];
-    if (bottom_face) {
+    if (bottom_face != palette_flash) {
       const LedColor color = LedPalette::flip({r, g, b}, i == NUM_LEDS - 1);
       r = color.red;
       g = color.green;
@@ -163,6 +159,12 @@ void LED::leds_on_array(const uint8_t red[], const uint8_t green[],
 }
 
 void LED::leds_on_rgb(uint8_t red, uint8_t green, uint8_t blue) {
+  if (palette_flash) {
+    const LedColor color = LedPalette::flip({red, green, blue});
+    red = color.red;
+    green = color.green;
+    blue = color.blue;
+  }
   // scales all values by brightness:
   // new_val = (val / 255) * brightness
   // new_val = (val * brightness) / 255

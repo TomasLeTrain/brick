@@ -22,6 +22,11 @@ public:
 
   void set_brightness(uint8_t brightness) { this->brightness = brightness; }
   bool wait_idle(uint32_t timeout_ms);
+  bool set_palette_flash(bool active) {
+    const bool changed = palette_flash != active;
+    palette_flash = active;
+    return changed;
+  }
 
   void leds_on_ready();
   void leds_on_low_battery();
@@ -47,6 +52,7 @@ private:
   rmt_symbol_word_t led_rmt_data[3 * NUM_LEDS * 8]{};
   uint8_t pixel_color[3 * NUM_LEDS]{};
   uint8_t brightness = 255;
+  bool palette_flash = false;
 
   rmt_channel_handle_t _rmt_tx_channel = nullptr; // RMT transmit channel handle
   rmt_encoder_handle_t _enc = nullptr;

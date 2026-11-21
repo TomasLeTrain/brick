@@ -1,4 +1,5 @@
 #include "../common/companion.h"
+#include "../common/orientation_feedback.h"
 #include <array>
 #include <cassert>
 #include <limits>
@@ -23,11 +24,12 @@ int main() {
          restored.right_lr == 777);
   assert(!restored.deserialize(buffer.data(),
                                8)); // Old controls cannot enable new firmware.
-  buffer[2] = 2;
-  assert(!restored.deserialize(buffer.data(), n));
   buffer[2] = 1;
-  buffer[4] = 0x80;
   assert(!restored.deserialize(buffer.data(), n));
+  buffer[2] = 2;
+  buffer[4] = 0x80;
+  assert(restored.deserialize(buffer.data(), n));
+  assert(restored.orientation_request == 64 && !restored.companion_active);
 
   TelemetryPacket telemetry{};
   telemetry.rpm = 3276.5f;
@@ -108,4 +110,45 @@ int main() {
   assert(!lines.feed('e'));
   assert(!lines.feed('\0'));
   assert(!lines.feed('\n'));
+  // Explicit selections are one-shot USB actions; ordinary lease heartbeats
+  // keep their RF request ID. Selecting the same pose again still acknowledges.
+  CompanionControl selections;
+  ThrottlePacket selected;
+  assert(selections.receive("@C,1,1,1,0,0,0", 0));
+  selections.apply(selected, 0);
+  assert(selected.orientation_request == 1 && !selected.inverted);
+  assert(!selections.receive("@C,1,1,1,0,0,0", 1));
+  assert(selections.receive("@C,1,1,2,0,-1,0", 2));
+  selections.apply(selected, 2);
+  assert(selected.orientation_request == 1);
+  assert(selections.receive("@C,1,1,3,0,0,0", 3));
+  selections.apply(selected, 3);
+  assert(selected.orientation_request == 2);
+  OrientationRequests requests;
+  assert(!requests.accept(1, 0, false)); // Startup isn't a button press.
+  assert(requests.accept(1, 1, false));
+  assert(!requests.accept(
+      1, 1, false)); // RF duplicates/reconnect don't replay feedback.
+  assert(requests.accept(1, 127, false));
+  assert(requests.accept(1, 0, false)); // Seven-bit revision rollover.
+  assert(
+      !requests.accept(2, 0, false)); // Sender restart alone isn't an action.
+  assert(requests.accept(2, 1, true));
+
+  OrientationFlash flash;
+  const uint32_t start = UINT32_MAX - 100;
+  flash.observe(2, start);
+  assert(flash.active(false, start) && !flash.active(true, start));
+  flash.observe(2, start +
+                       250); // A retained token cannot extend the 300 ms pulse.
+  assert(flash.active(false, start + 299));
+  assert(!flash.active(false, start + 300));
+  flash.observe(5, start + 301);
+  assert(flash.active(true, start + 301) && !flash.active(false, start + 301));
+  flash.observe(6,
+                start + 320); // New upright action replaces the bottom flash.
+  assert(flash.active(false, start + 320) && !flash.active(true, start + 320));
+  flash.observe(8,
+                start + 400); // Reselecting upright starts a new confirmation.
+  assert(flash.active(false, start + 699) && !flash.active(false, start + 700));
 }

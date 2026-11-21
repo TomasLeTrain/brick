@@ -11,12 +11,13 @@ python3 -m http.server 8000 --bind 127.0.0.1 --directory tools/console
 Open <http://localhost:8000> in desktop Chrome/Chromium or Edge, connect the
 sender by USB, and select a Joy-Con/gamepad exposed by your OS. The second pilot
 can take over heading with a 150 ms timeout back to the main radio. The page also
-provides manual translation flip, live telemetry, log commands, CSV copy/download,
+provides absolute Upright/Inverted actions with a 300 ms selected-face flash,
+live telemetry, log commands, CSV copy/download,
 and a run inspector with locally reconstructed correlation curves. Throttle,
 translation, and arming remain on the physical radio.
 
 Top/bottom LED data use GPIO 1/4 with opposite white/blue palettes, swapped by
-the flip control. A solid 0.3-turn bar marks theta=0; the last pixel shows a hue
+the orientation controls. A solid 0.3-turn bar marks theta=0; the last pixel shows a hue
 wheel. Rewire the bottom data line separately, or change those pins in
 `brick/config.h`. Control/telemetry
 packets are versioned and require updating **both** ESPs; persisted dump format

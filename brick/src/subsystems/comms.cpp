@@ -48,6 +48,13 @@ void Comms::controlCb(const uint8_t *data, size_t length, uint32_t received_ms,
   if (!packet.deserialize(data, length) ||
       !self.control_freshness.accept(packet, received_ms, millis()))
     return;
+  if (self.orientation_requests.accept(
+          packet.session, packet.orientation_request, packet.inverted)) {
+    uint32_t next = (self.orientation_token.load() & ~1u) + 2;
+    if (!next)
+      next = 2;
+    self.orientation_token.store(next | uint32_t(packet.inverted));
+  }
   self.current_throttle = packet;
   self.control_received_ms.store(received_ms);
   self.control_live.store(packet.connected && packet.swa);

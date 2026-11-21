@@ -30,14 +30,15 @@ inline float f32(const uint8_t *p) {
   std::memcpy(&v, &n, 4);
   return v;
 }
-inline void header(uint8_t *p, uint8_t type) {
+inline void header(uint8_t *p, uint8_t type, uint8_t version = 1) {
   p[0] = 'B';
   p[1] = 'R';
-  p[2] = 1;
+  p[2] = version;
   p[3] = type;
 }
-inline bool header(const uint8_t *p, size_t n, uint8_t type, size_t expected) {
-  return p && n == expected && p[0] == 'B' && p[1] == 'R' && p[2] == 1 &&
+inline bool header(const uint8_t *p, size_t n, uint8_t type, size_t expected,
+                   uint8_t version = 1) {
+  return p && n == expected && p[0] == 'B' && p[1] == 'R' && p[2] == version &&
          p[3] == type;
 }
 } // namespace PacketWire
@@ -120,10 +121,12 @@ struct ThrottlePacket {
   bool connected = false, swa = false, swb = false;
   bool inverted = false, companion_active = false;
   uint32_t session = 0, sequence = 0;
+  uint8_t orientation_request =
+      0; // Seven-bit action revision, repeated over RF.
   static constexpr size_t expected_packet_size() { return 21; }
   size_t serialize(uint8_t *p) const {
-    PacketWire::header(p, 1);
-    p[4] = companion_active;
+    PacketWire::header(p, 1, 2);
+    p[4] = uint8_t(companion_active) | ((orientation_request & 127) << 1);
     PacketWire::u32(p + 5, session);
     PacketWire::u32(p + 9, sequence);
     const uint16_t values[] = {left_lr,  left_ud,   right_lr,
@@ -140,7 +143,7 @@ struct ThrottlePacket {
     return expected_packet_size();
   }
   bool deserialize(const uint8_t *p, size_t n) {
-    if (!PacketWire::header(p, n, 1, expected_packet_size()) || p[4] > 1)
+    if (!PacketWire::header(p, n, 1, expected_packet_size(), 2))
       return false;
     uint64_t packed = 0;
     for (int i = 0; i < 8; ++i)
@@ -161,7 +164,8 @@ struct ThrottlePacket {
     swa = (packed >> 61) & 1;
     swb = (packed >> 62) & 1;
     inverted = packed >> 63;
-    companion_active = p[4];
+    companion_active = p[4] & 1;
+    orientation_request = p[4] >> 1;
     session = PacketWire::u32(p + 5);
     sequence = PacketWire::u32(p + 9);
     return session != 0;

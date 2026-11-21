@@ -6,7 +6,8 @@
 
 // USB serial:
 // @C,1,session,sequence,turn(-1000..1000),orientation(-1/0/1),enabled
-// Orientation is absolute/idempotent and latched. -1 leaves it unchanged.
+// Orientation is absolute and latched. Send 0/1 once per button press; normal
+// heartbeats send -1. Repeated RF controls retain the same acknowledgement ID.
 // Heading ownership is a short lease; the computer cannot arm or set throttle.
 class CompanionControl {
 public:
@@ -51,8 +52,10 @@ public:
     last_ms = now_ms;
     active = enabled;
     turn_milli = turn;
-    if (orientation >= 0)
+    if (orientation >= 0) {
       inverted = orientation;
+      orientation_request = (orientation_request + 1) & 127;
+    }
     return true;
   }
   bool owns_heading(uint32_t now_ms) const {
@@ -60,6 +63,7 @@ public:
   }
   void apply(ThrottlePacket &packet, uint32_t now_ms) const {
     packet.inverted = inverted;
+    packet.orientation_request = orientation_request;
     packet.companion_active = packet.connected && owns_heading(now_ms);
     if (packet.companion_active)
       packet.left_lr = (turn_milli + 1000) / 2;
@@ -68,6 +72,7 @@ public:
 
 private:
   bool seen = false, active = false, inverted = false;
+  uint8_t orientation_request = 0;
   int turn_milli = 0;
   uint32_t current_session = 0, current_sequence = 0, last_ms = 0;
 };

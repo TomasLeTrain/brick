@@ -56,9 +56,18 @@ def main():
             page.locator('#arm').click()
             page.wait_for_function("window.sent.some(s=>/^@C,1,\\d+,\\d+,[1-9]\\d*,-1,1\\n$/.test(s))")
             page.evaluate('window.pad.buttons[1].pressed=true')
-            page.wait_for_function("document.querySelector('#flip').textContent.includes('inverted')")
+            page.wait_for_function("document.querySelector('#inverted').getAttribute('aria-pressed') === 'true'")
             page.wait_for_timeout(250)
-            assert 'inverted' in page.locator('#flip').inner_text()  # Held button didn't repeatedly toggle.
+            assert page.locator('#inverted').get_attribute('aria-pressed') == 'true'
+            assert page.evaluate("window.sent.filter(s=>s.startsWith('@C,') && s.trim().split(',')[5] === '1').length") == 1
+            page.evaluate('window.pad.buttons[1].pressed=false;window.pad.buttons[0].pressed=true')
+            page.wait_for_function("document.querySelector('#upright').getAttribute('aria-pressed') === 'true'")
+            page.wait_for_function("window.sent.filter(s=>s.startsWith('@C,') && s.trim().split(',')[5] === '0').length === 1")
+            page.evaluate('window.pad.buttons[0].pressed=false')
+            page.wait_for_timeout(50)
+            page.evaluate('window.pad.buttons[0].pressed=true')
+            page.wait_for_function("window.sent.filter(s=>s.startsWith('@C,') && s.trim().split(',')[5] === '0').length === 2")
+            page.evaluate('window.pad.buttons[0].pressed=false')
             page.evaluate('window.pad.buttons[1].pressed=false;window.pad.buttons[3].pressed=true')
             page.wait_for_function("window.sent.includes('s\\n')")
             page.evaluate('window.pad.buttons[3].pressed=false')
@@ -121,7 +130,7 @@ def main():
             page.wait_for_function("!document.querySelector('#connect').disabled")
             assert not errors, errors
             browser.close()
-            print('Browser smoke passed: serial, gamepad, flip edges, capture, telemetry, CSV, disconnect, responsive layout')
+            print('Browser smoke passed: serial, gamepad, independent orientation actions, capture, telemetry, CSV, disconnect, responsive layout')
     finally:
         server.shutdown()
         server.server_close()

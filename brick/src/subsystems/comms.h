@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../config.h"
+#include "../common/orientation_feedback.h"
 #include "../common/packets.h"
 #include "../common/radio_config.h"
 #include "../lib/NowPair.h"
@@ -24,6 +25,7 @@ public:
     return heading_tracker;
   }
   RunRecorder &get_recorder() { return recorder; }
+  uint32_t orientation_feedback() const { return orientation_token.load(); }
   uint32_t estimator_time_us() const { return estimator_us; }
   bool motor_control_fresh() const {
     return control_live.load() &&
@@ -63,6 +65,8 @@ private:
   ThrottlePacket current_throttle{};
   std::atomic<uint32_t> control_received_ms{0};
   std::atomic<bool> control_live{false};
+  OrientationRequests orientation_requests;
+  std::atomic<uint32_t> orientation_token{0};
   ControlFreshness control_freshness;
   int latest_rssi = -128;
   uint32_t last_telemetry_ms = 0;

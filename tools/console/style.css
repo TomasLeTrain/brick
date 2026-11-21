@@ -450,3 +450,8 @@ footer {
     height: 190px;
   }
 }
+
+button.selected {
+  border-color: var(--teal);
+  background: #21483f;
+}

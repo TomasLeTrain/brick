@@ -40,17 +40,33 @@ explicit re-enable. You may configure a hold-to-steer button as well. Leave the
 page focused for the second pilot. Mapping changes release heading; only mapping
 preferences are saved locally, never control enable state.
 
-Button mappings are configurable: flip defaults to button 1, while capture/export
-are disabled until assigned. Actions trigger once per press and only when
-companion control is enabled. The on-screen flip/log buttons also work without a
-gamepad. There are no external scripts, uploads, or cloud services.
+Button mappings are configurable: Upright defaults to button 0 and Inverted to
+button 1, while capture/export are disabled until assigned. Actions trigger once per press and only when
+companion control is enabled. The on-screen orientation/log buttons also work
+without a gamepad. There are no external scripts, uploads, or cloud services.
 
-## Flipping and separate LED faces
+## Orientation and separate LED faces
 
-**Flip translation** sends an absolute orientation, repeated in fresh control
-packets. Repeated packets cannot toggle it twice. It reverses the motor translation
-multiplier without rotating heading, changing spin direction, or shifting the
-LED vector. Tank drive retains the main radio's usual controls.
+**Set upright** and **Set inverted** are independent, absolute actions. They never
+read the previous pose and toggle it. Repeated presses of the same button keep
+the same pose. The inverted pose reverses the motor translation multiplier
+without rotating heading, changing spin direction, or shifting the LED vector.
+Tank drive retains the main radio's usual controls.
+
+Each press, even reselecting the current pose, briefly reverses the palette on
+**only the selected top face for 300 ms**: Upright acknowledges on GPIO 1,
+Inverted on GPIO 4. The other face keeps its normal scene for the selected pose.
+The acknowledgement also works while the spin switch is off. A new selection
+replaces an existing flash; held buttons and RF duplicates do not extend/replay
+it. A seven-bit action revision is retained in subsequent controls so a missed
+packet does not lose the acknowledgement. The timer handles clock rollover and
+preserves the flash-save parking interlock.
+
+Refresh the console and update **both** ESPs for this revision: control packets
+use application version 2 (same 21-byte size); telemetry remains version 1 and
+persisted dumps remain v5. Ordinary serial lease heartbeats send orientation -1;
+only an explicit selection sends 0/1. Old console tabs must be refreshed to use
+these one-shot actions.
 
 Orientation is **latched on the sender**, including after a browser disconnect or
 an RF outage; it defaults to upright on sender reboot. A new page connection
@@ -65,7 +81,7 @@ Separate the two strips' data wires before using two colors. By default:
 | Top | 1 | White | Blue | Pink |
 | Bottom | 4 | Blue | White | Mint |
 
-The manual flip swaps these palettes between faces without rotating the ranges.
+Changing the selected orientation swaps these palettes between faces without rotating the ranges.
 The text sweep retains the merged horizontal/row reversal, is centered at theta
 = pi, and displays RPM rounded down to hundreds. The third, solid heading bar is
 centered at theta = 0 with width **0.3 turns** (108 degrees). Change
@@ -75,7 +91,7 @@ vector rows override either, leaving the remaining rows visible beneath them.
 
 Pixel `NUM_LEDS - 1` (7 on an eight-pixel strip) is reserved for a full-saturation
 hue wheel: red at theta=0, green at 120 degrees, blue at 240 degrees. The other
-face displays the opposite hue; manual flip swaps those too. The first seven
+face displays the opposite hue; orientation selection swaps those too. The first seven
 pixels carry the bar/vector and all five glyph rows, so the hue indicator never
 cuts through the text. All ranges and the wheel share the existing LED latency
 shift. Idle/tank mode uses the face background plus the hue pixel.
@@ -166,7 +182,7 @@ python3 -m playwright install chromium
 python3 tests/console_browser_smoke.py
 ```
 
-The browser test exercises USB framing, heading ownership, held-button flip
+The browser test exercises USB framing, heading ownership, held-button orientation
 edges, capture, telemetry display, complete-only CSV downloads, log import,
 controller/focus/serial disconnects, and mobile layout. Browser correlation is
 cross-checked against the existing NumPy reference on recorded logs by

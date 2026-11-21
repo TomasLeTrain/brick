@@ -76,4 +76,35 @@ int main() {
   assert(byte(b, last) == 0 && byte(b, last + 1) == 0 &&
          byte(b, last + 2) == 254);
   host_rmt_complete_all();
+  // Only the selected physical output gets the temporary palette inversion.
+  std::fill_n(r, NUM_LEDS, 255);
+  std::fill_n(g, NUM_LEDS, 255);
+  std::fill_n(blue, NUM_LEDS, 255);
+  top.leds_on_array(r, g, blue);
+  bottom.leds_on_array(r, g, blue, true);
+  const auto *bottom_data = static_cast<const uint8_t *>(b->payload);
+  const std::vector<uint8_t> unchanged(bottom_data, bottom_data + b->size);
+  host_rmt_complete_all();
+  assert(top.set_palette_flash(true));
+  top.leds_on_array(r, g, blue);
+  bottom.leds_on_array(r, g, blue, true);
+  assert(byte(a, 0) == 0 && byte(a, 1) == 0 &&
+         byte(a, 2) == 254); // Top flashes blue.
+  assert(std::memcmp(unchanged.data(), b->payload, b->size) ==
+         0); // Bottom stays normal.
+  host_rmt_complete_all();
+  assert(top.set_palette_flash(false));
+  top.leds_on_array(r, g, blue);
+  assert(byte(a, 0) == 254 && byte(a, 1) == 254 &&
+         byte(a, 2) == 254); // Normal scene restored.
+  host_rmt_complete_all();
+  top.set_palette_flash(true);
+  top.leds_off();
+  assert(byte(a, 0) == 254 && byte(a, 1) == 254 &&
+         byte(a, 2) == 0); // Visible even in a status blink's off interval.
+  host_rmt_complete_all();
+  top.set_palette_flash(false);
+  top.leds_off();
+  assert(byte(a, 0) == 0 && byte(a, 1) == 0 && byte(a, 2) == 0);
+  host_rmt_complete_all();
 }

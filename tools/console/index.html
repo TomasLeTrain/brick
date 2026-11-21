@@ -73,7 +73,8 @@
             Raw Joy-Con mappings vary by OS. Use the input preview to identify
             buttons.
           </p>
-          <label>Flip movement<select id="flipButton"></select></label
+          <label>Set upright<select id="uprightButton"></select></label
+          ><label>Set inverted<select id="invertedButton"></select></label
           ><label>Capture log<select id="captureButton"></select></label
           ><label>Export log<select id="exportButton"></select></label>
           <p class="small muted">
@@ -88,13 +89,18 @@
         </p>
         <div class="divider"></div>
         <div class="eyebrow">ROBOT ORIENTATION</div>
-        <button id="flip" class="wide" disabled>
-          Flip translation · upright
-        </button>
+        <div class="two">
+          <button id="upright" disabled>Set upright</button>
+          <button id="inverted" disabled>Set inverted</button>
+        </div>
+        <p id="orientationState" class="small muted">
+          Orientation not yet reported.
+        </p>
         <p class="small muted">
           Reverses motor translation only. Heading, spin direction, and LED
           vector stay in place. State stays latched on the sender until changed
-          or rebooted.
+          or rebooted. The selected top face briefly flips colors for 300 ms to
+          acknowledge each press.
         </p>
       </aside>
       <section class="workspace">
