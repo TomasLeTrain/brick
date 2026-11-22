@@ -15,10 +15,10 @@ int main() {
   led.leds_on_rgb(0, 255, 0);
   assert(host_rmt_transmits == 1);
   assert(std::memcmp(original.data(), host_rmt_payload, host_rmt_size) == 0);
-  host_rmt_busy = false;
+  host_rmt_complete_all();
   assert(led.wait_idle(20));
   led.leds_on_rgb(0, 255, 0);
   assert(host_rmt_transmits == 2);
   assert(std::memcmp(original.data(), host_rmt_payload, host_rmt_size) != 0);
-  host_rmt_busy = false;
+  host_rmt_complete_all();
 }

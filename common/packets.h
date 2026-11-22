@@ -1,139 +1,210 @@
 #pragma once
-
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+
+// Explicit application protocol. Both ESPs must be updated together; old
+// acceleration telemetry and unversioned controls are deliberately rejected.
+namespace PacketWire {
+inline void u32(uint8_t *p, uint32_t n) {
+  for (int i = 0; i < 4; ++i)
+    p[i] = n >> (8 * i);
+}
+inline uint32_t u32(const uint8_t *p) {
+  uint32_t n = 0;
+  for (int i = 0; i < 4; ++i)
+    n |= uint32_t(p[i]) << (8 * i);
+  return n;
+}
+inline void f32(uint8_t *p, float v) {
+  static_assert(sizeof(float) == 4, "32-bit IEEE float required");
+  uint32_t n;
+  std::memcpy(&n, &v, 4);
+  u32(p, n);
+}
+inline float f32(const uint8_t *p) {
+  uint32_t n = u32(p);
+  float v;
+  std::memcpy(&v, &n, 4);
+  return v;
+}
+inline void header(uint8_t *p, uint8_t type, uint8_t version = 1) {
+  p[0] = 'B';
+  p[1] = 'R';
+  p[2] = version;
+  p[3] = type;
+}
+inline bool header(const uint8_t *p, size_t n, uint8_t type, size_t expected,
+                   uint8_t version = 1) {
+  return p && n == expected && p[0] == 'B' && p[1] == 'R' && p[2] == version &&
+         p[3] == type;
+}
+} // namespace PacketWire
 
 struct TelemetryPacket {
-  // because of offset accel can be negative
-  // TODO: can offload int representation to serializing
-  int16_t a_x;
-  int16_t a_y;
-  int16_t a_z;
+  uint32_t micros_timestamp = 0;
+  float rpm = 0, target_rpm = 0, throttle = 0, rssi_hz = 0;
+  float correlation = 0, heading_rad = 0, heading_error_rad = 0, rpm_age_ms = 0;
+  uint32_t rx_dropped = 0, rssi_dropped = 0, tx_failures = 0;
+  uint8_t connection_state = 0, rpm_status = 0, heading_status = 0;
+  bool inverted = false, companion_active = false, controller_connected = false;
+  bool spin_enabled = false;
+  bool max_throttle = false;
+  int16_t rssi_dbm = -128;
+  uint16_t control_age_ms = UINT16_MAX;
+  uint32_t control_sequence = 0;
 
-  float rpm;
-  float radius; // Reserved legacy slot, zero with RSSI RPM.
-  int32_t micros_timestamp;
-
-  bool deserialize(const uint8_t *data, size_t length);
-  size_t serialize(uint8_t *buffer);
-  static size_t expected_packet_size() { return 14; }
-
-  float static convertToG(int16_t reading, int16_t maxScale = 400) {
-    float result = (float(maxScale) * float(reading)) / 2047;
-    return result;
+  static constexpr size_t expected_packet_size() { return 64; }
+  size_t serialize(uint8_t *p) const {
+    PacketWire::header(p, 2);
+    PacketWire::u32(p + 4, micros_timestamp);
+    const float values[] = {
+        rpm,         target_rpm,  throttle,          rssi_hz,
+        correlation, heading_rad, heading_error_rad, rpm_age_ms};
+    for (int i = 0; i < 8; ++i)
+      PacketWire::f32(p + 8 + 4 * i, std::isfinite(values[i]) ? values[i] : 0);
+    PacketWire::u32(p + 40, rx_dropped);
+    PacketWire::u32(p + 44, rssi_dropped);
+    PacketWire::u32(p + 48, tx_failures);
+    p[52] = connection_state;
+    p[53] = rpm_status;
+    p[54] = heading_status;
+    p[55] = uint8_t(inverted) | (uint8_t(companion_active) << 1) |
+            (uint8_t(controller_connected) << 2) | (uint8_t(spin_enabled) << 3) |
+            (uint8_t(max_throttle) << 4);
+    p[56] = uint16_t(rssi_dbm);
+    p[57] = uint16_t(rssi_dbm) >> 8;
+    p[58] = control_age_ms;
+    p[59] = control_age_ms >> 8;
+    PacketWire::u32(p + 60, control_sequence);
+    return expected_packet_size();
+  }
+  bool deserialize(const uint8_t *p, size_t n) {
+    if (!PacketWire::header(p, n, 2, expected_packet_size()) || (p[55] & 0xe0))
+      return false;
+    float values[8];
+    for (int i = 0; i < 8; ++i) {
+      values[i] = PacketWire::f32(p + 8 + 4 * i);
+      if (!std::isfinite(values[i]))
+        return false;
+    }
+    micros_timestamp = PacketWire::u32(p + 4);
+    rpm = values[0];
+    target_rpm = values[1];
+    throttle = values[2];
+    rssi_hz = values[3];
+    correlation = values[4];
+    heading_rad = values[5];
+    heading_error_rad = values[6];
+    rpm_age_ms = values[7];
+    rx_dropped = PacketWire::u32(p + 40);
+    rssi_dropped = PacketWire::u32(p + 44);
+    tx_failures = PacketWire::u32(p + 48);
+    connection_state = p[52];
+    rpm_status = p[53];
+    heading_status = p[54];
+    inverted = p[55] & 1;
+    companion_active = p[55] & 2;
+    controller_connected = p[55] & 4;
+    spin_enabled = p[55] & 8;
+    max_throttle = p[55] & 16;
+    const uint16_t signed_rssi = uint16_t(p[56]) | (uint16_t(p[57]) << 8);
+    rssi_dbm = signed_rssi < 32768 ? signed_rssi : int32_t(signed_rssi) - 65536;
+    control_age_ms = uint16_t(p[58]) | (uint16_t(p[59]) << 8);
+    control_sequence = PacketWire::u32(p + 60);
+    return true;
   }
 };
-
-inline size_t TelemetryPacket::serialize(uint8_t *buffer) {
-  buffer[0] = a_x & 0xff;
-  buffer[1] = (a_x >> 8) & 0xff;
-  buffer[2] = a_y & 0xff;
-  buffer[3] = (a_y >> 8) & 0xff;
-  buffer[4] = a_z & 0xff;
-  buffer[5] = (a_z >> 8) & 0xff;
-  // TODO: assumes max possible rpm is 4000
-  int16_t ser_rpm = (rpm * 2047) / 4000;
-  buffer[6] = ser_rpm & 0xff;
-  buffer[7] = (ser_rpm >> 8) & 0xff;
-
-  // NOTE: assumes max possible radius is 6
-  int16_t ser_radius = (radius * 2047) / 6.f;
-  buffer[8] = ser_radius & 0xff;
-  buffer[9] = (ser_radius >> 8) & 0xff;
-
-  buffer[10] = micros_timestamp & 0xff;
-  buffer[11] = (micros_timestamp >> 8) & 0xff;
-  buffer[12] = (micros_timestamp >> 16) & 0xff;
-  buffer[13] = (micros_timestamp >> 24) & 0xff;
-
-  return 14;
-}
-
-inline bool TelemetryPacket::deserialize(const uint8_t *data, size_t length) {
-  if (length != expected_packet_size()) {
-    return false;
-  }
-
-  a_x = data[0] | (data[1] << 8);
-  a_y = data[2] | (data[3] << 8);
-  a_z = data[4] | (data[5] << 8);
-  int16_t ser_rpm = data[6] | (data[7] << 8);
-  rpm = (ser_rpm * 4000.f) / 2047.f;
-  int16_t ser_radius = data[8] | (data[9] << 8);
-  radius = (ser_radius * 6.f) / 2047.f;
-
-  micros_timestamp =
-      data[10] | (data[11] << 8) | (data[12] << 16) | (data[13] << 24);
-
-  return true;
-}
 
 struct ThrottlePacket {
-  // all represent a range between 0 - 1000
-  // when serializing they are packed to fit inside 8 bytes
-  uint16_t left_lr;
-  uint16_t left_ud;
-
-  uint16_t right_lr;
-  uint16_t right_ud;
-
-  uint16_t knob_left;
-  uint16_t knob_right;
-
-  bool connected;
-  bool swa;
-  bool swb;
-
-  size_t serialize(uint8_t *buffer);
-  bool deserialize(const uint8_t *data, size_t length);
-  static size_t expected_packet_size() { return 8; }
+  uint16_t left_lr = 500, left_ud = 0, right_lr = 500, right_ud = 500;
+  uint16_t knob_left = 0, knob_right = 0;
+  bool connected = false, swa = false, swb = false;
+  bool inverted = false, companion_active = false;
+  bool max_throttle = false;
+  uint32_t session = 0, sequence = 0;
+  uint8_t orientation_request =
+      0; // Seven-bit action revision, repeated over RF.
+  static constexpr size_t expected_packet_size() { return 22; }
+  size_t serialize(uint8_t *p) const {
+    PacketWire::header(p, 1, 3);
+    p[4] = uint8_t(companion_active) | ((orientation_request & 127) << 1);
+    PacketWire::u32(p + 5, session);
+    PacketWire::u32(p + 9, sequence);
+    const uint16_t values[] = {left_lr,  left_ud,   right_lr,
+                               right_ud, knob_left, knob_right};
+    uint64_t packed = 0;
+    for (int i = 0; i < 6; ++i)
+      packed |= uint64_t(std::min(values[i], uint16_t(1000))) << (10 * i);
+    packed |= uint64_t(connected) << 60;
+    packed |= uint64_t(swa) << 61;
+    packed |= uint64_t(swb) << 62;
+    packed |= uint64_t(inverted) << 63;
+    for (int i = 0; i < 8; ++i)
+      p[13 + i] = packed >> (8 * i);
+    p[21] = uint8_t(max_throttle);
+    return expected_packet_size();
+  }
+  bool deserialize(const uint8_t *p, size_t n) {
+    if (!PacketWire::header(p, n, 1, expected_packet_size(), 3) || (p[21] & 0xfe))
+      return false;
+    uint64_t packed = 0;
+    for (int i = 0; i < 8; ++i)
+      packed |= uint64_t(p[13 + i]) << (8 * i);
+    uint16_t values[6];
+    for (int i = 0; i < 6; ++i) {
+      values[i] = (packed >> (10 * i)) & 1023;
+      if (values[i] > 1000)
+        return false;
+    }
+    left_lr = values[0];
+    left_ud = values[1];
+    right_lr = values[2];
+    right_ud = values[3];
+    knob_left = values[4];
+    knob_right = values[5];
+    connected = (packed >> 60) & 1;
+    swa = (packed >> 61) & 1;
+    swb = (packed >> 62) & 1;
+    inverted = packed >> 63;
+    max_throttle = p[21] & 1;
+    companion_active = p[4] & 1;
+    orientation_request = p[4] >> 1;
+    session = PacketWire::u32(p + 5);
+    sequence = PacketWire::u32(p + 9);
+    return session != 0;
+  }
 };
 
-inline size_t ThrottlePacket::serialize(uint8_t *buffer) {
-  uint64_t result = 0;
-
-  uint16_t mask = (1 << 10) - 1;
-
-  // assumes all values are not invalid, caps them anyway
-  result |= uint64_t(left_lr & mask);
-  result |= uint64_t(left_ud & mask) << 10;
-  result |= uint64_t(right_lr & mask) << 20;
-  result |= uint64_t(right_ud & mask) << 30;
-  result |= uint64_t(knob_left & mask) << 40;
-  result |= uint64_t(knob_right & mask) << 50;
-  result |= uint64_t(connected) << 60;
-  result |= uint64_t(swa) << 61;
-  result |= uint64_t(swb) << 62;
-
-  for (int i = 0; i < 8; i++) {
-    buffer[i] = (result >> (8 * i)) & 0xff;
+// A duplicate or late control must not refresh the motor-enable watchdog.
+class ControlFreshness {
+public:
+  static constexpr uint32_t timeout_ms = 100;
+  bool accept(const ThrottlePacket &p, uint32_t received_ms, uint32_t now_ms) {
+    if (!p.session || uint32_t(now_ms - received_ms) >= timeout_ms)
+      return false;
+    if (seen && p.session == session && int32_t(p.sequence - sequence) <= 0)
+      return false;
+    if (seen && p.session != session && uint32_t(now_ms - last_ms) < timeout_ms)
+      return false;
+    seen = true;
+    session = p.session;
+    sequence = p.sequence;
+    last_ms = received_ms;
+    return true;
   }
-
-  return 8;
-}
-
-inline bool ThrottlePacket::deserialize(const uint8_t *data, size_t length) {
-  if (length != expected_packet_size()) {
-    return false;
+  bool fresh(uint32_t now_ms) const {
+    return seen && uint32_t(now_ms - last_ms) < timeout_ms;
   }
-
-  uint64_t result = 0;
-
-  for (int i = 0; i < 8; i++) {
-    result |= uint64_t(data[i]) << uint64_t(8 * i);
+  uint16_t age_ms(uint32_t now_ms) const {
+    return seen ? std::min(uint32_t(now_ms - last_ms), uint32_t(UINT16_MAX))
+                : UINT16_MAX;
   }
+  void reset() { seen = false; }
 
-  uint16_t mask = (1 << 10) - 1;
-
-  left_lr = result & mask;
-  left_ud = (result >> 10) & mask;
-  right_lr = (result >> 20) & mask;
-  right_ud = (result >> 30) & mask;
-  knob_left = (result >> 40) & mask;
-  knob_right = (result >> 50) & mask;
-  connected = ((result >> 60) & 1) == 1;
-  swa = ((result >> 61) & 1) == 1;
-  swb = ((result >> 62) & 1) == 1;
-
-  return true;
-}
+private:
+  bool seen = false;
+  uint32_t session = 0, sequence = 0, last_ms = 0;
+};

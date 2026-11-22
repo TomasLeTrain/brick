@@ -1,9 +1,11 @@
 #include "../brick/src/subsystems/melt.h"
 #include <cassert>
+#include <cmath>
 
 uint32_t host_ms = 1000;
 void fill_color(uint8_t, uint8_t, uint8_t, uint8_t[], uint8_t[], uint8_t[]) {}
-void color_first_n(uint8_t, uint8_t, uint8_t, uint8_t[], uint8_t[], uint8_t[], int) {}
+void color_first_n(uint8_t, uint8_t, uint8_t, uint8_t[], uint8_t[], uint8_t[],
+                   int) {}
 
 int main() {
   Melt melt;
@@ -50,8 +52,69 @@ int main() {
   melt.general_update();
   melt.set_phase_reference(host_ms * 1000, 0, 1500);
   melt.fast_update();
-  assert(melt.get_output()->left_power < melt.get_output()->right_power);
+  assert(melt.get_output()->left_power > melt.get_output()->right_power);
   melt.set_phase_reference(host_ms * 1000, 3.14159265358979323846f, 1500);
   melt.fast_update();
-  assert(melt.get_output()->left_power > melt.get_output()->right_power);
+  assert(melt.get_output()->left_power < melt.get_output()->right_power);
+  // Flip reverses translation while retaining the same heading angle.
+  melt.set_phase_reference(host_ms * 1000, 0, 1500);
+  melt.fast_update();
+  const float upright_heading = melt.heading_rad();
+  input.is_upright = false;
+  melt.general_update();
+  melt.fast_update();
+  assert(melt.get_output()->left_power < melt.get_output()->right_power);
+  assert(melt.heading_rad() == upright_heading);
+
+  // Loss of trustworthy RPM suspends translation, not the feedforward spin.
+  input.rpm = 0;
+  melt.general_update();
+  melt.fast_update();
+  assert(melt.get_output()->left_power == melt.get_output()->right_power);
+  assert(melt.get_output()->left_power > 0);
+  // SWC selects an absolute motor-throttle range, including without RPM lock.
+  // The shared command also supplies consistent log/hint values.
+  input.vx = input.vy = 0;
+  for (bool full : {false, true}) {
+    input.max_throttle = full;
+    for (float speed : {0.f, .05f, .5f, 1.f}) {
+      input.target_rpm_control = speed;
+      melt.general_update();
+      melt.fast_update();
+      const float expected = speed < .1f ? 0 : speed * (full ? 1.f : 3300 * .00015f);
+      assert(std::abs(melt.spin_feedforward(speed, full) - expected) < .00001f);
+      assert(std::abs(melt.get_output()->left_power - expected) < .00001f);
+      assert(std::abs(melt.get_output()->right_power - expected) < .00001f);
+    }
+  }
+  input.rpm = 1500;
+  input.vx = input.vy = 1;
+  melt.general_update();
+  melt.set_phase_reference(host_ms * 1000, 0, 1500);
+  melt.fast_update();
+  assert(std::abs(melt.get_output()->left_power) <= 1);
+  assert(std::abs(melt.get_output()->right_power) <= 1);
+  // Low-sensitivity companion turns survive the browser's deadzone scaling;
+  // the radio keeps its original deadzone for the same small input.
+  const auto small_turn = [](bool companion) {
+    Melt steering;
+    auto &command = *steering.get_input();
+    command = {};
+    command.manual_drive_type = DriveType::Melting;
+    command.target_rpm_control = .6f;
+    command.rpm = 1500;
+    command.turn_control = .05f;
+    command.companion_heading = companion;
+    steering.general_update();
+    steering.set_phase_reference(host_ms * 1000, 0, 1500);
+    steering.fast_update();
+    host_ms += 20;
+    steering.set_phase_reference(host_ms * 1000, 0, 1500);
+    steering.fast_update();
+    return std::abs(
+        std::remainder(steering.heading_rad(), 6.2831853071795864769f));
+  };
+  assert(small_turn(false) < .0001f);
+  const float fine_turn = small_turn(true);
+  assert(fine_turn > .001f && fine_turn < .02f);
 }

@@ -5,7 +5,8 @@
 
 #define NUM_LEDS 8
 
-#define NEOPIXEL_PIN GPIO_NUM_1
+#define NEOPIXEL_PIN GPIO_NUM_1        // Top LED data
+#define BOTTOM_NEOPIXEL_PIN GPIO_NUM_4 // Separate bottom LED data; rewire first
 #define LEFT_MOTOR_PIN GPIO_NUM_2
 #define RIGHT_MOTOR_PIN GPIO_NUM_3
 
@@ -18,6 +19,10 @@
 
 // Optional active-low snapshot button. Connect the chosen free GPIO to GND.
 constexpr int DUMP_BUTTON_PIN = -1;
+
+// Skip repeat ESC arming on an eligible restart with a valid retained marker.
+// Cold starts, new firmware and lost/corrupt RTC state always arm normally.
+constexpr bool RESUME_ARMING_ON_WARM_RESET = true;
 
 // Boot defaults; a/t/n serial commands can select the mode until reboot.
 constexpr bool RPM_HEADING_COMPENSATION = true;

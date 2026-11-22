@@ -18,7 +18,8 @@ struct Timing {
 RssiRpmEstimator estimator;
 RpmHeadingTracker heading_tracker;
 
-void runCase(float expected_rpm, bool dump, float end_rpm) {
+void runCase(float expected_rpm, bool dump, float end_rpm,
+             uint32_t packet_rate = 1000, bool burst_loss = false) {
   estimator.reset();
   heading_tracker.reset();
   RssiSimulation signal;
@@ -39,7 +40,8 @@ void runCase(float expected_rpm, bool dump, float end_rpm) {
     const float actual_rpm = RssiSimulation::ramp_rpm(
         signal.time_us(), expected_rpm, end_rpm, 2000000);
     const float target = signal.time_us() < 600000 ? expected_rpm : end_rpm;
-    if (!signal.next(actual_rpm))
+    if (!signal.next(actual_rpm, packet_rate) ||
+        (burst_loss && signal.time_us() % 120000 >= 90000))
       continue;
     RunDump::Record row{};
     row.kind = 1;
@@ -110,12 +112,14 @@ void runCase(float expected_rpm, bool dump, float end_rpm) {
     Serial.println("# dump_end");
   const float load_percent =
       (samples.total + updates.total) * 100.0f / signal.time_us();
-  Serial.printf("# bench expected_rpm=%.0f final_rpm=%.1f matches=%lu/%lu "
+  Serial.printf("# bench expected_rpm=%.0f final_rpm=%.1f delivered_hz=%.1f "
+                "burst_loss=%u matches=%lu/%lu "
                 "rmse=%.2f add_mean_us=%.2f add_max_us=%lu "
                 "update_mean_us=%.2f update_max_us=%lu "
                 "analysis_mean_us=%.2f analysis_max_us=%lu analyses=%lu "
                 "estimated_cpu_pct=%.2f stack_free_bytes=%lu heap_free_bytes=%lu\n",
-                expected_rpm, estimator.rpm(),
+                expected_rpm, estimator.rpm(), estimator.sample_rate_hz(),
+                unsigned(burst_loss),
                 static_cast<unsigned long>(matches), static_cast<unsigned long>(checks),
                 std::sqrt(squared_error / std::max(uint32_t(1), checks)), samples.mean(),
                 static_cast<unsigned long>(samples.maximum), updates.mean(),
@@ -171,7 +175,7 @@ void setup() {
   Serial.printf("# CPU MHz=%lu estimator_bytes=%u heading_tracker_bytes=%u\n",
                 static_cast<unsigned long>(ESP.getCpuFreqMHz()),
                 unsigned(sizeof(RssiRpmEstimator)), unsigned(sizeof(RpmHeadingTracker)));
-  Serial.println("# b benchmarks RPM+heading; p benchmarks delayed-RPM heading correction; d dumps 3000 RPM; r dumps a ramp");
+  Serial.println("# b benchmarks RPM+heading; s benchmarks sparse/burst loss; p benchmarks delayed-RPM heading correction; d dumps 3000 RPM; r dumps a ramp");
 }
 
 void loop() {
@@ -180,6 +184,9 @@ void loop() {
     if (command == 'b') {
       for (float rpm : {400.f, 600.f, 1111.f, 2275.f, 3000.f})
         runCase(rpm, false, rpm);
+    } else if (command == 's') {
+      for (float rpm : {1200.f, 2400.f, 3000.f})
+        runCase(rpm, false, rpm, 600, true);
     } else if (command == 'p') {
       runHeadingCase();
     } else if (command == 'd') {

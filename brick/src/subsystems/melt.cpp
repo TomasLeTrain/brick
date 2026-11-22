@@ -5,6 +5,16 @@
 #include <cmath>
 #include <math.h>
 
+float Melt::spin_feedforward(float speed, bool max_throttle) const {
+  if (!std::isfinite(speed) || speed < config.target_rpm_control_deadzone)
+    return 0;
+  speed = std::clamp(speed, 0.f, 1.f);
+  return max_throttle
+             ? speed
+             : std::min(speed * config.max_target_rpm * throtte_pid.feedforward(),
+                        config.melt_max_throttle_magnitude);
+}
+
 // recalculates all values dependent on input
 // call after changing any inputs
 void Melt::general_update() {
@@ -32,8 +42,10 @@ void Melt::general_update() {
 
   float turn_control = input.turn_control;
 
-  // turn control deadzone
-  if (fabsf(turn_control) < config.melt_turn_control_deadzone) {
+  // Companion input is already deadzoned before sensitivity scaling. Applying
+  // the radio deadzone again would erase fine inputs at low sensitivity.
+  if (!input.companion_heading &&
+      fabsf(turn_control) < config.melt_turn_control_deadzone) {
     turn_control = 0;
   }
 
@@ -67,10 +79,10 @@ void Melt::general_update() {
       throtte_pid.setTargetRPM(input.target_rpm_control *
                                config.max_target_rpm);
 
-      base_spin_power = throtte_pid.update(input.rpm);
-
-      base_spin_power =
-          std::min(base_spin_power, config.melt_max_throttle_magnitude);
+      base_spin_power = input.max_throttle
+                            ? spin_feedforward(input.target_rpm_control, true)
+                            : std::clamp(throtte_pid.update(input.rpm), 0.f,
+                                         config.melt_max_throttle_magnitude);
     } else {
       base_spin_power = 0;
     }
@@ -84,6 +96,12 @@ void Melt::general_update() {
         2 * M_PI * 1000 * turn_control * config.turn_magnitude_pct;
 
     vector_direction_multiplier = input.is_upright ? 1 : -1;
+
+    // The solid heading bar is separate from the back-facing RPM display.
+    const float bar_width = std::isfinite(config.bar_led_width)
+                                ? std::clamp(config.bar_led_width, 0.f, 1.f)
+                                : 0;
+    led_bar_half_width_us = rotation_time_micros * bar_width / 2;
 
     // led stuff
     const int32_t half_led_heading_width_us =
@@ -171,27 +189,17 @@ void Melt::fast_update() {
   } else if (active_drive_type == DriveType::Tank) {
     fast_update_tank();
   }
+  led_function(theta / (2 * M_PI) * rotation_time_micros, output.led_red,
+               output.led_green, output.led_blue);
 }
 
 void Melt::fast_update_tank() {
   output.left_power = tank_left_power;
   output.right_power = tank_right_power;
-
-  // fill_color(255, 255, 0, output.led_red, output.led_green, output.led_blue);
-  if (input.is_upright) {
-    // fill_color(255, 255, 255, red, green, blue);
-    fill_color(255, 255, 255, output.led_red, output.led_green,
-               output.led_blue);
-  } else {
-    fill_color(255, 255, 0, output.led_red, output.led_green, output.led_blue);
-  }
 }
 
 // TODO: change multipliers to allow int-only math
 void Melt::fast_update_melt(float current_theta) {
-  const int32_t rotation_pct_us =
-      current_theta / (2 * M_PI) * rotation_time_micros;
-
   // Calculate diff in range -PI to PI
   float diff = current_theta - target_theta;
 
@@ -209,7 +217,9 @@ void Melt::fast_update_melt(float current_theta) {
   // NOTE: assumes cannot go below zero meaning on the other direction
   // scales to controller magnitude, independent of max power
   float max_linear_power =
-      std::min(config.max_translation_power, base_spin_power) * melt_linear_mag;
+      (melting ? std::min(config.max_translation_power, base_spin_power) *
+                     melt_linear_mag
+               : 0);
 
   if (config.translation_method == TranslationMethod::Square) {
     // only move when difference inside move_threshold
@@ -241,95 +251,65 @@ void Melt::fast_update_melt(float current_theta) {
   left_throttle += linear_power;
   right_throttle -= linear_power;
 
-  output.left_power = left_throttle;
-  output.right_power = right_throttle;
-
-  led_function(rotation_pct_us, output.led_red, output.led_green,
-               output.led_blue);
+  output.left_power = std::clamp(left_throttle, -1.f, 1.f);
+  output.right_power = std::clamp(right_throttle, -1.f, 1.f);
 }
 
 void Melt::led_function(int32_t rotation_pct_us, uint8_t red[], uint8_t green[],
                         uint8_t blue[]) {
-
-  // if not actually moving, just display a solid color
-  if (!melting) {
-    fill_color(255, 255, 255, red, green, blue);
-    return;
-  }
-
-  // offset for all led functions, should center so that
-  // rotation_pct_us = 0 is the direction of movement if moving directly
-  // forwards
-  // NOTE: most likely negative
-  // consider some command sent at t = 0, and that command actuates after delays
-  // at t = 1. We want the leds at t = 1 to display the vector that would have
-  // been displayed at t = 0, so we shift back time to make it appear as if
-  // those dealys dont exist
+  // Use the same latency-shifted angle for all three ranges and the hue wheel.
   rotation_pct_us += rotation_time_micros * input.led_shift_amount;
-
   rotation_pct_us %= int32_t(rotation_time_micros);
-  if (rotation_pct_us < 0) {
+  if (rotation_pct_us < 0)
     rotation_pct_us += rotation_time_micros;
-  }
 
-  bool display_led_on = false;
-  bool movement_vec_led_on = false;
-
-  // displays heading LED at correct location
-  if (led_display_start_us > led_display_end_us) {
-    // range crosses 0, checking if in range must be done with or
-    display_led_on = rotation_pct_us >= led_display_start_us ||
-                     rotation_pct_us <= led_display_end_us;
-  } else {
-    display_led_on = rotation_pct_us >= led_display_start_us &&
-                     rotation_pct_us <= led_display_end_us;
-  }
-
-  if (led_vector_start_us > led_vector_end_us) {
-    // range crosses 0, checking if in range must be done with or
-    movement_vec_led_on = rotation_pct_us >= led_vector_start_us ||
-                          rotation_pct_us <= led_vector_end_us;
-  } else {
-    movement_vec_led_on = rotation_pct_us >= led_vector_start_us &&
-                          rotation_pct_us <= led_vector_end_us;
-  }
-
-  const int num_vector_leds_on = led_vector_magnitude * NUM_LEDS;
-  if (movement_vec_led_on && num_vector_leds_on > 0) {
-    // color_first_n(255, 255, 0, red, green, blue, num_vector_leds_on);
-    color_first_n(255, 0, 128, red, green, blue, num_vector_leds_on);
-  } else if (display_led_on) {
-    // need to calculuate pct in current range
-    int32_t curr_led_heading_start_us = led_display_start_us;
-    int32_t curr_led_heading_end_us = led_display_end_us;
-    int32_t curr_rotation_pct_us = rotation_pct_us;
-
-    // make sure [start,end] range is continuous
-    if (curr_led_heading_start_us > curr_led_heading_end_us) {
-      curr_led_heading_end_us += rotation_time_micros;
-      if (curr_rotation_pct_us < curr_led_heading_start_us)
-        curr_rotation_pct_us += rotation_time_micros;
+  fill_color(LedPalette::background.red, LedPalette::background.green,
+             LedPalette::background.blue, red, green, blue);
+  if (active_drive_type == DriveType::Melting && melting) {
+    const auto in_range = [rotation_pct_us](int32_t start, int32_t end) {
+      return start > end ? rotation_pct_us >= start || rotation_pct_us <= end
+                         : rotation_pct_us >= start && rotation_pct_us <= end;
+    };
+    // Back-to-front layers: heading bar, RPM text, translation vector. Painting
+    // only the vector's lit rows leaves the underlying bar/text visible.
+    const int32_t distance_to_zero = std::min(
+        rotation_pct_us, int32_t(rotation_time_micros) - rotation_pct_us);
+    if (led_bar_half_width_us > 0 &&
+        distance_to_zero <= led_bar_half_width_us) {
+      fill_color(config.bar_led_color.red, config.bar_led_color.green,
+                 config.bar_led_color.blue, red, green, blue);
     }
-
-    float width_us = curr_led_heading_end_us - curr_led_heading_start_us;
-    if (width_us <= 0) {
-      // fill_color(0, 0, 0, red, green, blue);
-      fill_color(255, 255, 255, red, green, blue);
-      return;
+    if (in_range(led_display_start_us, led_display_end_us)) {
+      int32_t start = led_display_start_us, end = led_display_end_us;
+      int32_t current = rotation_pct_us;
+      if (start > end) {
+        end += rotation_time_micros;
+        if (current < start)
+          current += rotation_time_micros;
+      }
+      if (end > start)
+        led_display.fast_update(float(current - start) / (end - start), red,
+                                green, blue);
     }
-    float pct = (curr_rotation_pct_us - curr_led_heading_start_us) / width_us;
-    led_display.fast_update(pct, red, green, blue);
-    // done for testing
-    // if (input.is_upright) {
-    //   fill_color(0, 0, 255, red, green, blue);
-    // } else {
-    //   fill_color(255, 0, 0, red, green, blue);
-    // }
-  } else {
-    // fill_color(0, 0, 0, red, green, blue);
-    fill_color(255, 255, 255, red, green, blue);
+    const int count =
+        std::clamp(int(led_vector_magnitude * LedDisplay::data_pixels), 0,
+                   LedDisplay::data_pixels);
+    if (count > 0 && in_range(led_vector_start_us, led_vector_end_us)) {
+      for (int i = 0; i < count; ++i) {
+        red[i] = LedPalette::vector.red;
+        green[i] = LedPalette::vector.green;
+        blue[i] = LedPalette::vector.blue;
+      }
+    }
   }
-
-  // no matter what, color the last one with rgb
-  // TODO: probably shouldn't cross heading one
+  // Always write this last, including idle/tank mode; it can never become a
+  // text stroke or a vector/bar row. One revolution traverses the full hue
+  // wheel.
+  const LedColor wheel =
+      LedPalette::hue(float(rotation_pct_us) / rotation_time_micros);
+  red[LedDisplay::wheel_pixel] = wheel.red;
+  green[LedDisplay::wheel_pixel] = wheel.green;
+  blue[LedDisplay::wheel_pixel] = wheel.blue;
+  // Physical face palettes are fixed. Only the LED driver acknowledgement
+  // temporarily inverts the selected face, independently of motor orientation.
 }

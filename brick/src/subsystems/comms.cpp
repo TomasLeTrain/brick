@@ -1,21 +1,21 @@
 #include "comms.h"
 #include <cmath>
 
-namespace {
-constexpr uint32_t throttle_timeout_ms = 100;
-}
-
 const char *Comms::heading_command(char command, void *arg) {
   auto &tracker = static_cast<Comms *>(arg)->heading_tracker;
   using Mode = RpmHeadingTracker::CorrectionMode;
   switch (command) {
-  case 'a': tracker.set_correction_mode(Mode::AccelerationOnly);
+  case 'a':
+    tracker.set_correction_mode(Mode::AccelerationOnly);
     return "heading acceleration-only; translation uses dead reckoning";
-  case 't': tracker.set_correction_mode(Mode::Full);
+  case 't':
+    tracker.set_correction_mode(Mode::Full);
     return "heading correction enabled, including translation";
-  case 'n': tracker.set_correction_mode(Mode::Disabled);
+  case 'n':
+    tracker.set_correction_mode(Mode::Disabled);
     return "heading correction disabled; plain dead reckoning";
-  default: return nullptr;
+  default:
+    return nullptr;
   }
 }
 
@@ -23,6 +23,8 @@ void Comms::connectionCb(bool connected, void *arg) {
   if (!connected) {
     auto &self = *static_cast<Comms *>(arg);
     self.current_throttle = {};
+    self.control_freshness.reset();
+    self.control_live.store(false);
     self.rssi_estimator.reset();
     self.radio_clock.reset();
     self.heading_observed = false;
@@ -36,21 +38,39 @@ void Comms::dataCb(const uint8_t *data, size_t length, int, uint32_t,
   auto &self = *static_cast<Comms *>(arg);
   if (RunDump::is_message(data, length)) {
     self.recorder.on_message(data, length);
-  } else if (self.current_throttle.deserialize(data, length)) {
-    self.last_throttle_ms = millis();
-    if (self.current_throttle.connected) {
-      if (self.switch_seen && self.last_swb && !self.current_throttle.swb)
-        self.recorder.request('s');
-      self.last_swb = self.current_throttle.swb;
-      self.switch_seen = true;
-    } else {
-      self.switch_seen = false;
-    }
   }
 }
 
-void Comms::rssiCb(int rssi_dbm, uint32_t timestamp_us, uint32_t callback_us, void *arg) {
+void Comms::controlCb(const uint8_t *data, size_t length, uint32_t received_ms,
+                      void *arg) {
   auto &self = *static_cast<Comms *>(arg);
+  ThrottlePacket packet;
+  if (!packet.deserialize(data, length) ||
+      !self.control_freshness.accept(packet, received_ms, millis()))
+    return;
+  if (self.orientation_requests.accept(
+          packet.session, packet.orientation_request, packet.inverted)) {
+    uint32_t next = (self.orientation_token.load() & ~1u) + 2;
+    if (!next)
+      next = 2;
+    self.orientation_token.store(next | uint32_t(packet.inverted));
+  }
+  self.current_throttle = packet;
+  self.control_received_ms.store(received_ms);
+  self.control_live.store(packet.connected && packet.swa);
+  if (packet.connected) {
+    if (self.switch_seen && self.last_swb && !packet.swb)
+      self.recorder.request('s');
+    self.last_swb = packet.swb;
+    self.switch_seen = true;
+  } else
+    self.switch_seen = false;
+}
+
+void Comms::rssiCb(int rssi_dbm, uint32_t timestamp_us, uint32_t callback_us,
+                   void *arg) {
+  auto &self = *static_cast<Comms *>(arg);
+  self.latest_rssi = rssi_dbm;
   if (self.connected()) {
     self.recorder.add_rssi(rssi_dbm, timestamp_us, callback_us);
     self.rssi_estimator.add_sample(timestamp_us, rssi_dbm);
@@ -75,12 +95,19 @@ bool Comms::send(TelemetryPacket *packet) {
 
 bool Comms::begin() {
   using Mode = RpmHeadingTracker::CorrectionMode;
-  heading_tracker.set_correction_mode(!RPM_HEADING_COMPENSATION ? Mode::Disabled :
-      RPM_HEADING_TRANSLATION_COMPENSATION ? Mode::Full : Mode::AccelerationOnly);
+  heading_tracker.set_correction_mode(!RPM_HEADING_COMPENSATION ? Mode::Disabled
+                                      : RPM_HEADING_TRANSLATION_COMPENSATION
+                                          ? Mode::Full
+                                          : Mode::AccelerationOnly);
   recorder.on_control_command(heading_command, this);
   recorder.begin();
   peer_link.onConnectionChange(connectionCb, this);
   peer_link.onData(dataCb, this);
+  peer_link.onRealtime(controlCb, this);
+  peer_link.expectPeer(SENDER_MAC);
+  const esp_now_rate_config_t rate = {WIFI_PHY_MODE_11G, WIFI_PHY_RATE_6M,
+                                      false, false};
+  peer_link.setRate(&rate);
   peer_link.onRssiTimed(rssiCb, this);
   return peer_link.begin();
 }
@@ -89,8 +116,10 @@ void Comms::update() {
   peer_link.update();
 
   const uint32_t now_ms = millis();
-  if (now_ms - last_throttle_ms >= throttle_timeout_ms) {
+  if (!control_freshness.fresh(now_ms)) {
+    control_live.store(false);
     current_throttle.connected = false;
+    current_throttle.companion_active = false;
     switch_seen = false;
   }
 }
@@ -111,8 +140,9 @@ void Comms::update_rpm(float throttle, float steady_rpm, bool translating) {
     const uint32_t local_time = radio_clock.local(measurement.timestamp_us);
     const int32_t age = int32_t(now - local_time);
     if (age >= 0 && age <= 250000) {
-      heading_observation = {now - uint32_t(std::lround(age * RPM_HEADING_DELAY_SCALE)),
-                             measurement.rpm, measurement.correlation};
+      heading_observation = {
+          now - uint32_t(std::lround(age * RPM_HEADING_DELAY_SCALE)),
+          measurement.rpm, measurement.correlation};
     }
   }
   heading_tracker.set_translation(translating);

@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Brick · Pilot console</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="#">BRICK<span>PILOT CONSOLE</span></a>
+      <div class="connection">
+        <span class="dot" id="serialDot"></span
+        ><span id="serialState">Serial disconnected</span
+        ><button id="connect" class="primary">Connect sender</button
+        ><button id="disconnect" disabled>Disconnect</button>
+      </div>
+    </header>
+    <div class="notice" id="notice" role="status">
+      Connect the sender over USB. The main radio retains throttle, translation,
+      and arming.
+    </div>
+    <main>
+      <aside>
+        <div class="eyebrow">SECOND PILOT</div>
+        <h1>Heading control</h1>
+        <p class="muted">
+          Pair your Joy-Con with the computer over Bluetooth, or plug in a
+          supported gamepad. Press a button to make it visible.
+        </p>
+        <label
+          >Controller<select id="gamepad">
+            <option value="">No gamepad detected</option>
+          </select></label
+        >
+        <div id="padPreview" class="pad-preview">
+          Waiting for controller input
+        </div>
+        <div class="two">
+          <label
+            >Heading axis<select id="axis">
+              <option value="0">Axis 0</option>
+            </select></label
+          ><label
+            >Direction<select id="invert">
+              <option value="0">Normal</option>
+              <option value="1">Reversed</option>
+            </select></label
+          >
+        </div>
+        <label
+          >Heading sensitivity <output id="gainValue">25%</output
+          ><input id="gain" type="range" min="1" max="100" value="25"
+        /></label>
+        <div class="two">
+          <label
+            >Deadzone<input
+              id="deadzone"
+              type="number"
+              min="0"
+              max="0.5"
+              step="0.01"
+              value="0.12" /></label
+          ><label
+            >Hold to steer<select id="deadman">
+              <option value="-1">No hold button</option>
+            </select></label
+          >
+        </div>
+        <details>
+          <summary>Button mapping</summary>
+          <p class="muted small">
+            Raw Joy-Con mappings vary by OS. Use the input preview to identify
+            buttons.
+          </p>
+          <label>Set upright<select id="uprightButton"></select></label
+          ><label>Set inverted<select id="invertedButton"></select></label
+          ><label>Capture log<select id="captureButton"></select></label
+          ><label>Export log<select id="exportButton"></select></label>
+          <p class="small muted">
+            Buttons act once per press while USB is connected and this page is
+            focused, even with companion heading disabled.
+          </p>
+        </details>
+        <button class="primary wide" id="arm" disabled>
+          Disable companion heading
+        </button>
+        <p class="small muted" id="ownership">
+          Companion heading defaults to enabled. A 150 ms timeout returns
+          heading to the radio when input is unavailable.
+        </p>
+        <div class="divider"></div>
+        <div class="eyebrow">ROBOT ORIENTATION</div>
+        <div class="two">
+          <button id="upright" disabled>Set upright</button>
+          <button id="inverted" disabled>Set inverted</button>
+        </div>
+        <p id="orientationState" class="small muted">
+          Orientation not yet reported.
+        </p>
+        <p class="small muted">
+          Reverses motor translation only. Heading, spin direction, and LED
+          vector stay in place. State stays latched on the sender until changed
+          or rebooted. The selected top face briefly flips colors for 300 ms to
+          acknowledge each press.
+          Radio SWD changes also select orientation: 0 upright, 1 inverted.
+          Leaving SWD unchanged preserves Joy-Con selections.
+        </p>
+      </aside>
+      <section class="workspace">
+        <nav aria-label="Console views">
+          <button class="tab active" data-view="live">Live dashboard</button
+          ><button class="tab" data-view="logs">
+            Run logs <span id="logCount">0</span></button
+          ><button class="tab" data-view="serial">Serial terminal</button>
+        </nav>
+        <div class="actions">
+          <button data-command="s">Capture RAM + save</button
+          ><button data-command="e">Export to console</button
+          ><button data-command="x">Cancel export</button
+          ><span class="muted small"
+            >Flash saves wait for stopped motor outputs.</span
+          >
+        </div>
+        <div id="live" class="view">
+          <div class="metrics">
+            <article>
+              <span>Measured speed</span
+              ><strong id="rpm">—<small> RPM</small></strong
+              ><em id="rpmStatus">Waiting for telemetry</em>
+            </article>
+            <article>
+              <span>Target speed</span
+              ><strong id="target">—<small> RPM</small></strong
+              ><em id="throttle">Throttle —</em>
+            </article>
+            <article>
+              <span>RSSI samples</span
+              ><strong id="rate">—<small> /s</small></strong
+              ><em id="signal">Signal —</em>
+            </article>
+            <article>
+              <span>Period correlation</span><strong id="correlation">—</strong
+              ><em id="rpmAge">Measurement age —</em>
+            </article>
+          </div>
+          <article class="chart-card">
+            <div class="chart-title">
+              <h2>Rotation speed</h2>
+              <span
+                ><i class="key teal"></i> RSSI RPM
+                <i class="key amber"></i> Target</span
+              >
+            </div>
+            <canvas
+              id="liveRpm"
+              aria-label="Live measured and target RPM"
+            ></canvas>
+            <p class="small muted">
+              Last 60 seconds · incoming telemetry is limited to 10 Hz over USB.
+            </p>
+          </article>
+          <div class="two panels">
+            <article class="chart-card">
+              <div class="chart-title">
+                <h2>Radio delivery</h2>
+                <span>packets / second</span>
+              </div>
+              <canvas id="liveRf"></canvas>
+            </article>
+            <article class="link-panel">
+              <h2>Control & link</h2>
+              <dl id="linkDetails">
+                <dt>Robot</dt>
+                <dd>Waiting</dd>
+              </dl>
+            </article>
+          </div>
+        </div>
+        <div id="logs" class="view hidden">
+          <div class="log-toolbar">
+            <label
+              >Capture<select id="logSelect">
+                <option>No captures yet</option>
+              </select></label
+            ><button id="import">Import CSV</button
+            ><input id="file" type="file" accept=".csv,.txt" hidden /><button
+              id="copyLog"
+              disabled
+            >
+              Copy CSV</button
+            ><button id="saveLog" disabled>Download CSV</button>
+          </div>
+          <p id="logState" class="muted">
+            Capture with s, stop the motors so flash can save, then export with
+            e. Imports also support simulation CSV.
+          </p>
+          <div id="logPlots" class="hidden">
+            <article class="chart-card">
+              <h2>RPM through the run</h2>
+              <canvas id="logRpm"></canvas>
+            </article>
+            <div class="two panels">
+              <article class="chart-card">
+                <h2>RSSI · dBm</h2>
+                <canvas id="logRssi"></canvas>
+              </article>
+              <article class="chart-card">
+                <h2>Motor throttle</h2>
+                <canvas id="logThrottle"></canvas>
+              </article>
+            </div>
+            <label
+              >Inspect time <output id="cursorValue">0.00 s</output
+              ><input
+                type="range"
+                id="cursor"
+                min="0"
+                max="1"
+                step="0.001"
+                value="0"
+            /></label>
+            <article class="chart-card">
+              <div class="chart-title">
+                <h2>Normalized autocorrelation</h2>
+                <span id="curveNote">Lag in milliseconds</span>
+              </div>
+              <canvas id="correlationPlot"></canvas>
+              <p class="small muted">
+                Reconstructed on this computer from raw RSSI, with the
+                firmware's 1 ms interpolation grid and gap masks. Click a run
+                chart or drag the time slider to inspect a measurement.
+              </p>
+            </article>
+          </div>
+        </div>
+        <div id="serial" class="view hidden">
+          <div class="log-toolbar">
+            <label
+              >Robot command<select id="command">
+                <option value="s">s · capture</option>
+                <option value="e">e · export via sender</option>
+                <option value="p">p · print on robot USB</option>
+                <option value="x">x · cancel</option>
+                <option value="a">a · acceleration correction only</option>
+                <option value="t">t · translation correction on</option>
+                <option value="n">n · dead reckoning only</option>
+                <option value="f">f · format robot filesystem</option>
+              </select></label
+            ><button id="sendCommand">Send</button
+            ><button id="copySerial">Copy terminal</button
+            ><button id="clearSerial">Clear</button>
+          </div>
+          <p class="small muted">
+            p prints on the robot's own USB port. Use e to receive CSV here.
+            Telemetry is paused during dump export to keep CSV intact.
+          </p>
+          <pre id="terminal" tabindex="0" aria-label="Serial output"></pre>
+        </div>
+        <footer>
+          <span id="health">No telemetry yet</span
+          ><span>LOCAL · no cloud connection</span>
+        </footer>
+      </section>
+    </main>
+    <script type="module" src="app.mjs"></script>
+  </body>
+</html>
