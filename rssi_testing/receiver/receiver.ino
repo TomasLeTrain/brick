@@ -38,6 +38,7 @@ void receive_callback(const esp_now_recv_info_t *rx_info, const uint8_t *data,
   if (IS_BROADCAST_ADDR(rx_info->des_addr)) {
     // regardless of broadcast/unicast, as slave add as peer
     if (!esp_now_is_peer_exist(rx_info->src_addr)) {
+      Serial.println("added peer");
       add_peer(rx_info->src_addr);
       memcpy(peer_addr, rx_info->src_addr, MAC_LEN);
       peer_connected = true;
@@ -93,11 +94,6 @@ void setup() {
 uint32_t last_print_timestamp = 0;
 
 void loop() {
-  if (peer_connected) {
-    // send actual information over unicast information
-    const uint8_t data[1] = {155};
-    esp_now_send(peer_addr, data, sizeof data);
-  }
 
   // constantly send rssi packets
   // const uint8_t rssi_data[1] = 7;
@@ -108,10 +104,16 @@ void loop() {
   // }
 
   // print packet count every half second
-  if (millis() - last_print_timestamp > 500) {
-    Serial.printf("rssi_packet_count: %d\n", rssi_packet_count);
+  if (millis() - last_print_timestamp > 1000) {
+    Serial.printf("rssi_packet_count:%d\n", rssi_packet_count);
     rssi_packet_count = 0;
     last_print_timestamp = millis();
+
+    if (peer_connected) {
+      // send actual information over unicast information
+      const uint8_t data[1] = {155};
+      esp_now_send(peer_addr, data, sizeof data);
+    }
   }
   vTaskDelay(1);
 
